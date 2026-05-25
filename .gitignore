@@ -1,0 +1,88 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# CMake artefacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.cmake
+CTestTestfile.cmake
+Testing/
+_deps/
+compile_commands.json
+
+# Object / binary artefacts
+*.o
+*.obj
+*.lo
+*.slo
+*.ko
+*.a
+*.la
+*.lai
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Linker / debug
+*.ilk
+*.map
+*.exp
+*.pdb
+*.idb
+*.gch
+*.pch
+
+# Coverage
+*.gcno
+*.gcda
+*.gcov
+coverage/
+*.profraw
+*.profdata
+
+# Editor / IDE
+.vscode/
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.user
+*.user.*
+
+# Logs / temp
+*.log
+*.tmp
+*.bak
+
+# Local environment overrides
+.env
+.env.local
+
+# Large project-specific outputs (worlds, palettes, voxel dumps)
+worlds/
+*.mca
+*.mcr
+*.dat
+*.dat_old
+*.nbt
+palette_cache/
+voxels/
+*.bin
