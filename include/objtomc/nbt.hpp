@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -13,15 +14,24 @@
 
 namespace objtomc::nbt {
 
+static_assert(std::numeric_limits<float>::is_iec559,
+              "objtomc::nbt requires IEEE 754 binary32 float on host");
+static_assert(std::numeric_limits<double>::is_iec559,
+              "objtomc::nbt requires IEEE 754 binary64 double on host");
+
 enum class TagType : std::uint8_t {
     End        = 0,
     Byte       = 1,
+    Short      = 2,
     Int        = 3,
     Long       = 4,
+    Float      = 5,
+    Double     = 6,
     ByteArray  = 7,
     String     = 8,
     List       = 9,
     Compound   = 10,
+    IntArray   = 11,
     LongArray  = 12,
 };
 
@@ -74,9 +84,13 @@ public:
     const Tag&     operator[](std::size_t i) const;
 
     void push_byte       (std::int8_t  v);
+    void push_short      (std::int16_t v);
     void push_int        (std::int32_t v);
     void push_long       (std::int64_t v);
+    void push_float      (float        v);
+    void push_double     (double       v);
     void push_byte_array (std::vector<std::int8_t>  v);
+    void push_int_array  (std::vector<std::int32_t> v);
     void push_long_array (std::vector<std::int64_t> v);
     void push_string     (std::string  v);
     void push_list       (List         v);
@@ -96,9 +110,13 @@ public:
     Compound() = default;
 
     void put_byte       (std::string name, std::int8_t  v);
+    void put_short      (std::string name, std::int16_t v);
     void put_int        (std::string name, std::int32_t v);
     void put_long       (std::string name, std::int64_t v);
+    void put_float      (std::string name, float        v);
+    void put_double     (std::string name, double       v);
     void put_byte_array (std::string name, std::vector<std::int8_t>  v);
+    void put_int_array  (std::string name, std::vector<std::int32_t> v);
     void put_long_array (std::string name, std::vector<std::int64_t> v);
     void put_string     (std::string name, std::string  v);
     void put_list       (std::string name, List         v);
@@ -117,28 +135,40 @@ private:
     std::vector<entry> entries_;
 };
 
+// New alternatives (Short, Float, Double, Int_Array) are appended at the
+// end of the variant so that the existing alternative indices used by
+// Tag::type()'s switch (and indirectly by the byte fixture in
+// nbt_worked_example) remain unchanged.  See research/nbt_api_proposal.md §9.5.
 using TagValue = std::variant<
-    std::int8_t,
-    std::int32_t,
-    std::int64_t,
-    std::vector<std::int8_t>,
-    std::string,
-    List,
-    Compound,
-    std::vector<std::int64_t>
+    std::int8_t,                    // index 0  — TAG_Byte
+    std::int32_t,                   // index 1  — TAG_Int
+    std::int64_t,                   // index 2  — TAG_Long
+    std::vector<std::int8_t>,       // index 3  — TAG_Byte_Array
+    std::string,                    // index 4  — TAG_String
+    List,                           // index 5  — TAG_List
+    Compound,                       // index 6  — TAG_Compound
+    std::vector<std::int64_t>,      // index 7  — TAG_Long_Array
+    std::int16_t,                   // index 8  — TAG_Short
+    float,                          // index 9  — TAG_Float
+    double,                         // index 10 — TAG_Double
+    std::vector<std::int32_t>       // index 11 — TAG_Int_Array
 >;
 
 class Tag {
 public:
     Tag(std::int8_t  v);
+    Tag(std::int16_t v);
     Tag(std::int32_t v);
     Tag(std::int64_t v);
+    Tag(float        v);
+    Tag(double       v);
     Tag(std::vector<std::int8_t>  v);
+    Tag(std::vector<std::int32_t> v);
+    Tag(std::vector<std::int64_t> v);
     Tag(std::string  v);
     Tag(const char*  v);
     Tag(List         v);
     Tag(Compound     v);
-    Tag(std::vector<std::int64_t> v);
 
     TagType          type()  const noexcept;
     const TagValue&  value() const noexcept;

@@ -1,5 +1,6 @@
 #include "objtomc/nbt.hpp"
 
+#include <bit>
 #include <limits>
 #include <type_traits>
 #include <utility>
@@ -61,6 +62,11 @@ inline void write_i8(W& out, std::int8_t v) {
 }
 
 template <Writer W>
+inline void write_i16_be(W& out, std::int16_t v) {
+    write_u16_be(out, static_cast<std::uint16_t>(v));
+}
+
+template <Writer W>
 inline void write_i32_be(W& out, std::int32_t v) {
     write_u32_be(out, static_cast<std::uint32_t>(v));
 }
@@ -68,6 +74,16 @@ inline void write_i32_be(W& out, std::int32_t v) {
 template <Writer W>
 inline void write_i64_be(W& out, std::int64_t v) {
     write_u64_be(out, static_cast<std::uint64_t>(v));
+}
+
+template <Writer W>
+inline void write_f32_be(W& out, float v) {
+    write_u32_be(out, std::bit_cast<std::uint32_t>(v));
+}
+
+template <Writer W>
+inline void write_f64_be(W& out, double v) {
+    write_u64_be(out, std::bit_cast<std::uint64_t>(v));
 }
 
 template <Writer W>
@@ -93,6 +109,17 @@ inline void write_byte_array_payload(W& out, const std::vector<std::int8_t>& v) 
     }
     write_i32_be(out, static_cast<std::int32_t>(v.size()));
     write_bytes(out, reinterpret_cast<const std::uint8_t*>(v.data()), v.size());
+}
+
+template <Writer W>
+inline void write_int_array_payload(W& out, const std::vector<std::int32_t>& v) {
+    if (v.size() > kMaxArrayLen) {
+        throw nbt_error("nbt: int array length exceeds int32 max");
+    }
+    write_i32_be(out, static_cast<std::int32_t>(v.size()));
+    for (std::int32_t x : v) {
+        write_i32_be(out, x);
+    }
 }
 
 template <Writer W>
@@ -134,10 +161,16 @@ void write_payload(W& out, const Tag& tag) {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, std::int8_t>) {
             write_i8(out, v);
+        } else if constexpr (std::is_same_v<T, std::int16_t>) {
+            write_i16_be(out, v);
         } else if constexpr (std::is_same_v<T, std::int32_t>) {
             write_i32_be(out, v);
         } else if constexpr (std::is_same_v<T, std::int64_t>) {
             write_i64_be(out, v);
+        } else if constexpr (std::is_same_v<T, float>) {
+            write_f32_be(out, v);
+        } else if constexpr (std::is_same_v<T, double>) {
+            write_f64_be(out, v);
         } else if constexpr (std::is_same_v<T, std::vector<std::int8_t>>) {
             write_byte_array_payload(out, v);
         } else if constexpr (std::is_same_v<T, std::string>) {
@@ -146,6 +179,8 @@ void write_payload(W& out, const Tag& tag) {
             write_list_payload(out, v);
         } else if constexpr (std::is_same_v<T, Compound>) {
             write_compound_payload(out, v);
+        } else if constexpr (std::is_same_v<T, std::vector<std::int32_t>>) {
+            write_int_array_payload(out, v);
         } else if constexpr (std::is_same_v<T, std::vector<std::int64_t>>) {
             write_long_array_payload(out, v);
         } else {
@@ -175,6 +210,13 @@ void List::push_byte(std::int8_t v) {
     items_.emplace_back(v);
 }
 
+void List::push_short(std::int16_t v) {
+    if (type_ != TagType::Short) {
+        throw nbt_error("nbt: List::push_short on list of different element type");
+    }
+    items_.emplace_back(v);
+}
+
 void List::push_int(std::int32_t v) {
     if (type_ != TagType::Int) {
         throw nbt_error("nbt: List::push_int on list of different element type");
@@ -189,9 +231,30 @@ void List::push_long(std::int64_t v) {
     items_.emplace_back(v);
 }
 
+void List::push_float(float v) {
+    if (type_ != TagType::Float) {
+        throw nbt_error("nbt: List::push_float on list of different element type");
+    }
+    items_.emplace_back(v);
+}
+
+void List::push_double(double v) {
+    if (type_ != TagType::Double) {
+        throw nbt_error("nbt: List::push_double on list of different element type");
+    }
+    items_.emplace_back(v);
+}
+
 void List::push_byte_array(std::vector<std::int8_t> v) {
     if (type_ != TagType::ByteArray) {
         throw nbt_error("nbt: List::push_byte_array on list of different element type");
+    }
+    items_.emplace_back(std::move(v));
+}
+
+void List::push_int_array(std::vector<std::int32_t> v) {
+    if (type_ != TagType::IntArray) {
+        throw nbt_error("nbt: List::push_int_array on list of different element type");
     }
     items_.emplace_back(std::move(v));
 }
@@ -242,6 +305,10 @@ void Compound::put_byte(std::string name, std::int8_t v) {
     put(std::move(name), Tag(v));
 }
 
+void Compound::put_short(std::string name, std::int16_t v) {
+    put(std::move(name), Tag(v));
+}
+
 void Compound::put_int(std::string name, std::int32_t v) {
     put(std::move(name), Tag(v));
 }
@@ -250,7 +317,19 @@ void Compound::put_long(std::string name, std::int64_t v) {
     put(std::move(name), Tag(v));
 }
 
+void Compound::put_float(std::string name, float v) {
+    put(std::move(name), Tag(v));
+}
+
+void Compound::put_double(std::string name, double v) {
+    put(std::move(name), Tag(v));
+}
+
 void Compound::put_byte_array(std::string name, std::vector<std::int8_t> v) {
+    put(std::move(name), Tag(std::move(v)));
+}
+
+void Compound::put_int_array(std::string name, std::vector<std::int32_t> v) {
     put(std::move(name), Tag(std::move(v)));
 }
 
@@ -307,27 +386,35 @@ std::vector<Compound::entry>::const_iterator Compound::end() const noexcept {
 // ---------------------------------------------------------------------------
 
 Tag::Tag(std::int8_t  v) : v_(v) {}
+Tag::Tag(std::int16_t v) : v_(v) {}
 Tag::Tag(std::int32_t v) : v_(v) {}
 Tag::Tag(std::int64_t v) : v_(v) {}
+Tag::Tag(float        v) : v_(v) {}
+Tag::Tag(double       v) : v_(v) {}
 Tag::Tag(std::vector<std::int8_t>  v) : v_(std::move(v)) {}
+Tag::Tag(std::vector<std::int32_t> v) : v_(std::move(v)) {}
+Tag::Tag(std::vector<std::int64_t> v) : v_(std::move(v)) {}
 Tag::Tag(std::string  v) : v_(std::move(v)) {}
 Tag::Tag(const char*  v) : v_(std::string(v)) {}
 Tag::Tag(List         v) : v_(std::move(v)) {}
 Tag::Tag(Compound     v) : v_(std::move(v)) {}
-Tag::Tag(std::vector<std::int64_t> v) : v_(std::move(v)) {}
 
 TagType Tag::type() const noexcept {
     switch (v_.index()) {
-        case 0: return TagType::Byte;
-        case 1: return TagType::Int;
-        case 2: return TagType::Long;
-        case 3: return TagType::ByteArray;
-        case 4: return TagType::String;
-        case 5: return TagType::List;
-        case 6: return TagType::Compound;
-        case 7: return TagType::LongArray;
+        case 0:  return TagType::Byte;
+        case 1:  return TagType::Int;
+        case 2:  return TagType::Long;
+        case 3:  return TagType::ByteArray;
+        case 4:  return TagType::String;
+        case 5:  return TagType::List;
+        case 6:  return TagType::Compound;
+        case 7:  return TagType::LongArray;
+        case 8:  return TagType::Short;
+        case 9:  return TagType::Float;
+        case 10: return TagType::Double;
+        case 11: return TagType::IntArray;
     }
-    return TagType::End;  // unreachable; variant index is one of 0..7
+    return TagType::End;  // unreachable; variant index is one of 0..11
 }
 
 const TagValue& Tag::value() const noexcept { return v_; }

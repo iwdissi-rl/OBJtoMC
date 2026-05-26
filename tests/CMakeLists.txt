@@ -17,3 +17,20 @@ add_test(
         ${CMAKE_SOURCE_DIR}/tests/oracle/test_nbt_worked_example.py
 )
 set_tests_properties(nbt_python_oracle PROPERTIES LABELS "oracle")
+
+# Complete tag-type coverage: one entry per spec tag id 1..12 plus TAG_End
+# terminators on the wire, exercising all 13 NBT tag types in one tree.
+# Logical verification lives in the Python oracle; the C++ side only smoke-checks
+# the envelope bytes (no hand-computed 13-tag fixture).
+add_executable(test_nbt_complete_coverage test_nbt_complete_coverage.cpp)
+target_link_libraries(test_nbt_complete_coverage PRIVATE nbt)
+add_test(NAME nbt_complete_coverage COMMAND test_nbt_complete_coverage)
+
+add_test(
+    NAME nbt_complete_coverage_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_nbt_complete_coverage>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_nbt_complete_coverage.py
+)
+set_tests_properties(nbt_complete_coverage_oracle PROPERTIES LABELS "oracle")
