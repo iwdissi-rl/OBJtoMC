@@ -5,7 +5,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <ios>
 #include <iterator>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -76,7 +79,7 @@ void dump_hex_diff(const std::vector<std::uint8_t>& actual,
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     using namespace objtomc::nbt;
 
     Compound root;
@@ -90,6 +93,33 @@ int main() {
 
     const std::vector<std::uint8_t> bytes =
         to_bytes("", Tag(std::move(root)));
+
+    if (argc == 3 && std::string_view(argv[1]) == "--dump") {
+        std::ofstream out(argv[2], std::ios::binary);
+        if (!out) {
+            std::fprintf(stderr,
+                "ERROR: failed to open %s for writing\n", argv[2]);
+            return 2;
+        }
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+        if (!out) {
+            std::fprintf(stderr, "ERROR: write to %s failed\n", argv[2]);
+            return 2;
+        }
+        return 0;
+    }
+
+    if (argc != 1) {
+        std::fprintf(stderr,
+            "usage:\n"
+            "  %s                  (in-memory assertion against the "
+            "proposal §5 fixture)\n"
+            "  %s --dump <path>    (write produced bytes to <path>; "
+            "no assertion)\n",
+            argv[0], argv[0]);
+        return 2;
+    }
 
     const bool size_match = (bytes.size() == sizeof(kExpected));
     const bool content_match = size_match &&

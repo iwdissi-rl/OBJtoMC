@@ -76,6 +76,9 @@ Thumbs.db
 .env
 .env.local
 
+# Python oracle venv (recreated locally; never committed)
+tests/oracle_venv/
+
 # Large project-specific outputs (worlds, palettes, voxel dumps)
 worlds/
 *.mca
