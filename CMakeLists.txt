@@ -15,8 +15,11 @@ endif()
 
 find_package(ZLIB REQUIRED)
 
+add_library(nbt STATIC src/nbt.cpp)
+target_include_directories(nbt PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt)
 
 enable_testing()
 add_subdirectory(tests)
