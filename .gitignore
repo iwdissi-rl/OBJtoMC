@@ -87,5 +87,10 @@ worlds/
 *.dat_old
 *.nbt
 palette_cache/
+
+# Force-include the ground-truth test fixture (a real MC 1.21.5 region
+# file captured by the maintainer — see DECISIONS.md 2026-05-28). The
+# enclosing `*.mca` rule would otherwise hide it from git.
+!tests/fixtures/*.mca
 voxels/
 *.bin
