@@ -34,3 +34,35 @@ add_test(
         ${CMAKE_SOURCE_DIR}/tests/oracle/test_nbt_complete_coverage.py
 )
 set_tests_properties(nbt_complete_coverage_oracle PROPERTIES LABELS "oracle")
+
+# Anvil framing layer (Session 10).
+#
+# Tier-1: pure C++ smoke check that an empty RegionWriter produces a
+# valid 8192-byte all-zero region (location table + timestamp table,
+# no chunk-data sectors).
+add_executable(test_anvil_empty_region test_anvil_empty_region.cpp)
+target_link_libraries(test_anvil_empty_region PRIVATE anvil)
+add_test(NAME anvil_empty_region COMMAND test_anvil_empty_region)
+
+# Tier-2: helper binary that reads decompressed NBT bytes for one chunk
+# from a file, writes them through our RegionWriter to an .mca, and
+# verifies the output is 4 KiB-aligned. Driven by the Python oracle
+# below; not registered as a CTest itself (the oracle invokes it).
+add_executable(test_anvil_single_chunk_writer
+               test_anvil_single_chunk_writer.cpp)
+target_link_libraries(test_anvil_single_chunk_writer PRIVATE anvil)
+
+# Tier-2 oracle: extract chunk (0,0) raw NBT bytes from the MC 1.21.5
+# fixture, round-trip them through our writer, then verify with
+# anvil-parser==0.9.0 (independent reader) that the logical fields
+# (DataVersion, xPos, yPos, zPos, Status, len(sections)) match.
+# See research/anvil_api_proposal.md §3.10 tier 2.
+add_test(
+    NAME anvil_single_chunk_roundtrip
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_anvil_single_chunk_writer>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_anvil_single_chunk_roundtrip.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(anvil_single_chunk_roundtrip PROPERTIES LABELS "oracle")

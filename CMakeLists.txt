@@ -18,8 +18,11 @@ find_package(ZLIB REQUIRED)
 add_library(nbt STATIC src/nbt.cpp)
 target_include_directories(nbt PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
+add_library(anvil STATIC src/anvil.cpp)
+target_link_libraries(anvil PUBLIC nbt PRIVATE ZLIB::ZLIB)
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil)
 
 enable_testing()
 add_subdirectory(tests)
