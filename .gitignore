@@ -92,5 +92,12 @@ palette_cache/
 # file captured by the maintainer — see DECISIONS.md 2026-05-28). The
 # enclosing `*.mca` rule would otherwise hide it from git.
 !tests/fixtures/*.mca
+
+# Force-include the Tier-4 manual-verification artifact (a deterministic
+# .mca produced by tests/manual/generate_tier4_test_region.py; this is
+# the file the maintainer loads into MC 1.21.5 to perform the in-game
+# verification — see DECISIONS.md 2026-06-02). Same enclosing-rule
+# carve-out as the fixture above.
+!tests/manual/*.mca
 voxels/
 *.bin
