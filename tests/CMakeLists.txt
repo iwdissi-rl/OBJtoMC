@@ -66,3 +66,29 @@ add_test(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(anvil_single_chunk_roundtrip PROPERTIES LABELS "oracle")
+
+# Tier-3 (Session 13): helper binary that reads a tab-separated manifest
+# of (chunk_x, chunk_z, nbt_path) entries, pre-loads every chunk's bytes,
+# builds ONE RegionWriter(0, 0), and emits the full multi-chunk region.
+# Driven by the Python oracle below; not registered as a CTest itself.
+# Wall-clock timing inside the binary covers add_chunk + write() only.
+add_executable(test_anvil_full_region_writer
+               test_anvil_full_region_writer.cpp)
+target_link_libraries(test_anvil_full_region_writer PRIVATE anvil)
+
+# Tier-3 oracle: extract every populated chunk's raw NBT from the MC
+# 1.21.5 fixture (960 chunks per research/anvil_ground_truth.md),
+# round-trip the whole set through our writer, then assert logical
+# equivalence chunk-by-chunk via anvil-parser==0.9.0 + twoolie/NBT.
+# Stress test for multi-chunk allocation; not a risk gate (Tier 4 has
+# already verified format compatibility against vanilla MC 1.21.5 — see
+# DECISIONS.md 2026-06-08).
+add_test(
+    NAME anvil_full_region_roundtrip
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_FULL_REGION_BINARY=$<TARGET_FILE:test_anvil_full_region_writer>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_anvil_full_region_roundtrip.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(anvil_full_region_roundtrip PROPERTIES LABELS "oracle")
