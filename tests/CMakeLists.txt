@@ -92,3 +92,26 @@ add_test(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(anvil_full_region_roundtrip PROPERTIES LABELS "oracle")
+
+# Chunk schema layer (Session 15a — all-air path only).
+#
+# Single binary, two test entries:
+#   chunk_all_air_error_paths : run with no args; checks that empty biome_id,
+#     to_bytes-before-build, and double-build all throw chunk_error.
+#   chunk_all_air_oracle      : Python oracle drives the binary with
+#     --out <tempfile>, parses with twoolie/NBT==1.5.1 (NOT anvil-parser;
+#     anvil-parser 0.9.0 doesn't support the 1.21 flat-root chunk format —
+#     research/chunk_schema_proposal.md §3.12 (c)), asserts the §3.12 (a)
+#     all-air structural contract.
+add_executable(test_chunk_all_air test_chunk_all_air.cpp)
+target_link_libraries(test_chunk_all_air PRIVATE chunk)
+add_test(NAME chunk_all_air_error_paths COMMAND test_chunk_all_air)
+
+add_test(
+    NAME chunk_all_air_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_chunk_all_air>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_all_air_oracle.py
+)
+set_tests_properties(chunk_all_air_oracle PROPERTIES LABELS "oracle")

@@ -21,8 +21,11 @@ target_include_directories(nbt PUBLIC ${CMAKE_SOURCE_DIR}/include)
 add_library(anvil STATIC src/anvil.cpp)
 target_link_libraries(anvil PUBLIC nbt PRIVATE ZLIB::ZLIB)
 
+add_library(chunk STATIC src/chunk.cpp)
+target_link_libraries(chunk PUBLIC nbt)
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk)
 
 enable_testing()
 add_subdirectory(tests)
