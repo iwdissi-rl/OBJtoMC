@@ -115,3 +115,25 @@ add_test(
         ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_all_air_oracle.py
 )
 set_tests_properties(chunk_all_air_oracle PROPERTIES LABELS "oracle")
+
+# Session 15b — single-stone byte-pattern test (§3.12.b).
+#
+# Helper binary dumps a chunk with one minecraft:stone at world (8, -61, 8),
+# everything else air. The Python oracle parses the output with twoolie/NBT
+# and asserts the §3.12.b contract: 2-entry palette [air, stone] in section
+# Y=-4, bit-packed data field of length 256 longs, with data[56] equal to
+# 0x0000_0001_0000_0000 (slot 8 of a 4-bits-per-block long, holding the
+# palette index 1 for stone). All other sections (Y=-3..19) remain all-air.
+# This is the bit-packing contract from research/chunk_schema_proposal.md
+# §3.4 — get it wrong and MC silently rejects chunks.
+add_executable(test_chunk_single_stone test_chunk_single_stone.cpp)
+target_link_libraries(test_chunk_single_stone PRIVATE chunk)
+
+add_test(
+    NAME chunk_single_stone_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_chunk_single_stone>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_single_stone_oracle.py
+)
+set_tests_properties(chunk_single_stone_oracle PROPERTIES LABELS "oracle")
