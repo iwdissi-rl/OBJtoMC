@@ -137,3 +137,25 @@ add_test(
         ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_single_stone_oracle.py
 )
 set_tests_properties(chunk_single_stone_oracle PROPERTIES LABELS "oracle")
+
+# Session 15c — heightmap predicate-scan stress test (§3.5 + §3.12).
+#
+# Helper binary builds a chunk with stone in a triangular footprint within
+# section Y=-4 (world Y in [-60, -50], lx + lz <= world_y + 64). The Python
+# oracle re-derives the expected per-column heightmap values, unpacks the
+# packed 9-bit-LSB-first-non-straddling longs, and asserts byte-by-byte
+# equivalence across all 256 columns × 4 heightmaps. This is the first
+# cross-check on the (lz * 16 + lx) heightmap-layout convention from
+# proposal §3.5 — the Superflat fixture is uniform and can't disambiguate
+# (lz, lx) vs (lx, lz) without a non-uniform pattern.
+add_executable(test_chunk_heightmap test_chunk_heightmap.cpp)
+target_link_libraries(test_chunk_heightmap PRIVATE chunk)
+
+add_test(
+    NAME chunk_heightmap_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_chunk_heightmap>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_heightmap_oracle.py
+)
+set_tests_properties(chunk_heightmap_oracle PROPERTIES LABELS "oracle")

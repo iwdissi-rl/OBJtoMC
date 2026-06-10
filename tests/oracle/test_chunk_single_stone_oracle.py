@@ -79,6 +79,37 @@ STONE_SLOT = STONE_BLOCK_INDEX % 16       # 8
 STONE_BITS = 4
 STONE_EXPECTED_LONG = 1 << (STONE_SLOT * STONE_BITS)  # 0x0000_0001_0000_0000
 
+# 15c heightmap contract for the single-stone test:
+#   column index in the heightmap = lz * 16 + lx = 8 * 16 + 8 = 136
+#   value = (top_y + 1) - WORLD_BOTTOM_Y = (-61 + 1) - (-64) = 4
+#   bits = 9, entries_per_long = 7, longs_needed = 37
+#   For column 136: long_idx = 136 // 7 = 19, slot = 136 % 7 = 3
+#   bit_shift = 3 * 9 = 27 → expected longs[19] = 4 << 27 = 0x0000_0000_2000_0000
+#   All other 36 longs = 0. All four heightmaps are identical in v0.1 because
+#   they share the collapsed predicate `name != "minecraft:air"`.
+HEIGHTMAP_COL_IDX = STONE_LZ * 16 + STONE_LX       # 136
+HEIGHTMAP_EXPECTED_VALUE = (STONE_WY + 1) - (-64)  # 4
+HEIGHTMAP_BITS = 9
+HEIGHTMAP_LONG_IDX = HEIGHTMAP_COL_IDX // (64 // HEIGHTMAP_BITS)    # 136 // 7 = 19
+HEIGHTMAP_SLOT     = HEIGHTMAP_COL_IDX %  (64 // HEIGHTMAP_BITS)    # 136 %  7 = 3
+HEIGHTMAP_EXPECTED_LONG = HEIGHTMAP_EXPECTED_VALUE << (HEIGHTMAP_SLOT * HEIGHTMAP_BITS)
+# = 4 << 27 = 0x20000000
+
+
+def unpack_lsb_first_nonstraddling(longs, bits, num_entries):
+    """Reciprocal of the writer's pack helper. Treats each long as 64-bit
+    unsigned (masking out sign extension) and extracts `bits` per slot,
+    `64 // bits` slots per long, non-straddling."""
+    entries_per_long = 64 // bits
+    mask = (1 << bits) - 1
+    out = []
+    for i in range(num_entries):
+        long_idx = i // entries_per_long
+        slot = i % entries_per_long
+        val_u64 = longs[long_idx] & 0xFFFFFFFFFFFFFFFF
+        out.append((val_u64 >> (slot * bits)) & mask)
+    return out
+
 
 def fail(message):
     print("FAIL: " + message)
@@ -289,7 +320,10 @@ def main():
             fail("structures has {} entries, expected 0".format(
                 len(structures.tags)))
 
-        # ----- Heightmaps: still all-zero in 15b (15c lands real values) -----
+        # ----- Heightmaps (15c contract) -----
+        # Stone at (lx=8, wy=-61, lz=8) → heightmap column 136, value 4.
+        # All other 255 columns: 0. All four heightmaps identical under the
+        # v0.1 collapsed predicate.
         heightmaps = check_compound_field(root, "Heightmaps", TAG_COMPOUND, "root")
         keys = {entry.name for entry in heightmaps.tags}
         if keys != EXPECTED_HEIGHTMAP_KEYS:
@@ -301,11 +335,30 @@ def main():
             if len(hm) != EXPECTED_HEIGHTMAP_LONGS:
                 fail("Heightmaps.{} has {} longs, expected {}".format(
                     hm_name, len(hm), EXPECTED_HEIGHTMAP_LONGS))
+            # Per-long bit-pattern check on the load-bearing long (#19) and
+            # the surrounding longs (must be zero — establishes that no stale
+            # bits leaked from adjacent columns).
             for i, v in enumerate(hm):
-                if v != 0:
-                    fail("Heightmaps.{}[{}] = {}, expected 0 (15b still "
-                         "emits zero heightmaps; 15c lands real scan)".format(
-                             hm_name, i, v))
+                u64 = v & 0xFFFFFFFFFFFFFFFF
+                expected_u64 = (
+                    HEIGHTMAP_EXPECTED_LONG if i == HEIGHTMAP_LONG_IDX else 0)
+                if u64 != expected_u64:
+                    fail(
+                        "Heightmaps.{}[{}] = 0x{:016x}, expected 0x{:016x}".format(
+                            hm_name, i, u64, expected_u64))
+            # Cross-check via unpacking — guards against the case where the
+            # raw long matches by accident but slot-bit-position is wrong.
+            unpacked = unpack_lsb_first_nonstraddling(
+                list(hm), HEIGHTMAP_BITS, 256)
+            for col_idx, val in enumerate(unpacked):
+                expected = (HEIGHTMAP_EXPECTED_VALUE
+                            if col_idx == HEIGHTMAP_COL_IDX else 0)
+                if val != expected:
+                    fail(
+                        "Heightmaps.{} unpacked[col_idx={}] = {}, "
+                        "expected {} (lx={}, lz={})".format(
+                            hm_name, col_idx, val, expected,
+                            col_idx % 16, col_idx // 16))
 
         # ----- Sections -----
         sections = check_compound_field(root, "sections", TAG_LIST, "root")
@@ -325,13 +378,20 @@ def main():
             assert_all_air_section(sections[list_index], list_index)
 
         print("PASS: single-stone chunk byte-pattern matches §3.12.b contract")
-        print("  output {} bytes; stone at (lx={}, wy={}, lz={}) → block_index "
-              "{}, long_idx {}, slot {}, bits {} → "
-              "data[{}] = 0x{:016x} (4 bytes verified zero elsewhere across "
-              "256 longs in section 0; remaining 23 sections all-air)".format(
+        print("  output {} bytes; stone at (lx={}, wy={}, lz={}) → "
+              "block_index {}, long_idx {}, slot {}, bits {} → "
+              "data[{}] = 0x{:016x} (other 255 longs zero; remaining 23 "
+              "sections all-air)".format(
                   os.path.getsize(out_path), STONE_LX, STONE_WY, STONE_LZ,
                   STONE_BLOCK_INDEX, STONE_LONG_IDX, STONE_SLOT, STONE_BITS,
                   STONE_LONG_IDX, STONE_EXPECTED_LONG))
+        print("  heightmap[col={}] = {} (lx={}, lz={}, top_y={}); long_idx "
+              "{}, slot {}, bits {} → longs[{}] = 0x{:016x} on all 4 "
+              "heightmaps; other 36 longs zero".format(
+                  HEIGHTMAP_COL_IDX, HEIGHTMAP_EXPECTED_VALUE,
+                  STONE_LX, STONE_LZ, STONE_WY,
+                  HEIGHTMAP_LONG_IDX, HEIGHTMAP_SLOT, HEIGHTMAP_BITS,
+                  HEIGHTMAP_LONG_IDX, HEIGHTMAP_EXPECTED_LONG))
         return 0
     finally:
         if out_path is not None and os.path.exists(out_path):
