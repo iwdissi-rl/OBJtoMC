@@ -159,3 +159,14 @@ add_test(
         ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_heightmap_oracle.py
 )
 set_tests_properties(chunk_heightmap_oracle PROPERTIES LABELS "oracle")
+
+# Session 15d — chunk-schema Tier-4 manual-verification helper.
+#
+# Build target only; NOT registered as a CTest test. The Python generator
+# scripts in tests/manual/ orchestrate the manual-test artifact build
+# (positive + negative coords, plus timestamp-table zeroing for
+# deterministic SHA-256). Same pattern as Session 11's
+# test_anvil_single_chunk_writer (which is a CTest-buildable target but
+# not itself a CTest case — it's driven by the Tier-2 oracle).
+add_executable(chunkschema_tier4_helper manual/chunkschema_tier4_helper.cpp)
+target_link_libraries(chunkschema_tier4_helper PRIVATE chunk anvil)
