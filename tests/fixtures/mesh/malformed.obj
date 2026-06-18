@@ -1,0 +1,6 @@
+# Malformed OBJ fixture — vertex coordinate is NaN, face references a
+# vertex index that does not exist. Either failure surfaces as
+# mesh_error per proposal §5.10 (c).
+v 0.0 0.0 0.0
+v NaN-junk NotANumber alsoBroken
+f 1 2 999999

@@ -1,0 +1,12 @@
+# Hand-cube material for the mesh test suite.
+# Fixture for tests/test_mesh_cube.cpp (proposal §5.10 (a)).
+
+newmtl RedMatte
+Ka 0.1 0.0 0.0
+Kd 1.0 0.0 0.0
+Ks 0.0 0.0 0.0
+Ke 0.0 0.0 0.0
+Ns 10.0
+Ni 1.0
+d  1.0
+illum 2

@@ -1,0 +1,17 @@
+# Two-material fixture for tests/test_mesh_materials.cpp (proposal §5.10 (b)).
+# Verifies per-face material assignment, Kd/Ke/d round-trip, and map_Kd
+# storage (no path normalisation).
+
+newmtl MatA
+Kd 0.25 0.50 0.75
+Ke 0.10 0.20 0.30
+d  0.5
+illum 2
+map_Kd textures/matA_diffuse.png
+
+newmtl MatB
+Kd 0.90 0.10 0.05
+Ke 0.00 0.00 0.00
+d  1.0
+illum 1
+map_Kd ./textures/matB_diffuse.png

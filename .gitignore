@@ -99,5 +99,14 @@ palette_cache/
 # verification — see DECISIONS.md 2026-06-02). Same enclosing-rule
 # carve-out as the fixture above.
 !tests/manual/*.mca
+
+# Force-include the mesh-layer test fixtures (.obj files under
+# tests/fixtures/mesh/ — hand-cube, two-material MTL, malformed input,
+# Stanford bunny per proposal §5.10 + DECISIONS.md 2026-06-18 "Stanford
+# bunny test fixture provenance"). The `*.obj` rule in the binary-
+# artefacts block above is for compiler-emitted Windows object files,
+# not Wavefront geometry; carve out the fixtures directory explicitly.
+!tests/fixtures/mesh/*.obj
+
 voxels/
 *.bin

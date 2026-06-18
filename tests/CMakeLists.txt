@@ -170,3 +170,43 @@ set_tests_properties(chunk_heightmap_oracle PROPERTIES LABELS "oracle")
 # not itself a CTest case — it's driven by the Tier-2 oracle).
 add_executable(chunkschema_tier4_helper manual/chunkschema_tier4_helper.cpp)
 target_link_libraries(chunkschema_tier4_helper PRIVATE chunk anvil)
+
+# ---------------------------------------------------------------------------
+# Session 18 — OBJ Loading layer tests (research/obj_loading_proposal.md §5.10).
+# Four C++ unit tests covering: hand-cube (a), MTL-bearing (b), malformed
+# input throws mesh_error (c), Stanford bunny load (d). No Python oracle —
+# tinyobjloader is the external reference parser (proposal §5.9 wraps it),
+# and the OBJ format itself has no version-cliff comparable to the chunk-NBT
+# layer's MC-DataVersion sensitivity.
+# ---------------------------------------------------------------------------
+set(MESH_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/mesh)
+
+add_executable(test_mesh_cube test_mesh_cube.cpp)
+target_link_libraries(test_mesh_cube PRIVATE mesh)
+add_test(
+    NAME mesh_cube
+    COMMAND test_mesh_cube ${MESH_FIXTURES_DIR}/cube.obj
+)
+
+add_executable(test_mesh_materials test_mesh_materials.cpp)
+target_link_libraries(test_mesh_materials PRIVATE mesh)
+add_test(
+    NAME mesh_materials
+    COMMAND test_mesh_materials ${MESH_FIXTURES_DIR}/materials.obj
+)
+
+add_executable(test_mesh_malformed test_mesh_malformed.cpp)
+target_link_libraries(test_mesh_malformed PRIVATE mesh)
+add_test(
+    NAME mesh_malformed
+    COMMAND test_mesh_malformed
+            ${MESH_FIXTURES_DIR}/does_not_exist.obj
+            ${MESH_FIXTURES_DIR}/malformed.obj
+)
+
+add_executable(test_mesh_bunny test_mesh_bunny.cpp)
+target_link_libraries(test_mesh_bunny PRIVATE mesh)
+add_test(
+    NAME mesh_bunny
+    COMMAND test_mesh_bunny ${MESH_FIXTURES_DIR}/bunny.obj
+)

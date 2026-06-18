@@ -1,0 +1,20 @@
+upstream:        https://github.com/tinyobjloader/tinyobjloader
+license:         MIT
+license-spdx:    MIT
+git-sha:         62ff207968f3dc14a64a1e2378dce67b760e7c4a
+git-ref:         release    (branch)
+acquired:        2026-06-18
+acquired-by:     Session 18 (implementation prompt)
+audited-by:      Session 17 (research/obj_loading_proposal.md §3)
+
+source-url:      https://raw.githubusercontent.com/tinyobjloader/tinyobjloader/62ff207968f3dc14a64a1e2378dce67b760e7c4a/tiny_obj_loader.h
+file-sha256:     cffc9c8746541bd14a3ba877cd3c52cb7ccfe3779b1d5863f7d13f05d26f1ef8
+file-size:       467021 bytes  (13865 lines)
+
+notes:           Vendored single-file header (~7-8 kLOC + embedded fast_float
+                 v8.0.2 sub-dep, tri-licensed MIT / Apache-2.0 / BSL-1.0).
+                 Per proposal §2.5 the vendored source is read-only — no
+                 patches; customisation is via upstream-blessed compile-time
+                 defines in src/mesh.cpp only (TINYOBJLOADER_IMPLEMENTATION).
+                 Per proposal §2.6 the git-sha above is the load-bearing
+                 record; git-ref is informational.
