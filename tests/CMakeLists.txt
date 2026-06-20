@@ -272,3 +272,17 @@ add_test(
             ${PALETTE_FIXTURES_DIR}/version_mismatch_palette.csv
             ${PALETTE_BLOCKS_JSON}
 )
+
+# Session 20a.7 — real-catalog shape test. Exercises load_default_palette()
+# against data/block_palette_db.csv (the 414-row catalog committed by
+# Session 20a.7). No CLI args: the loader resolves the path via the
+# OBJTOMC_PALETTE_DATA_DIR + OBJTOMC_VENDOR_MINECRAFT_DATA_DIR macros baked
+# into src/palette.cpp at compile time. Bound [400, 450] is empirically
+# calibrated per DECISIONS.md 2026-06-20 "Block Palette DB §3.11(a) bound
+# recalibration".
+add_executable(test_palette_default_shape test_palette_default_shape.cpp)
+target_link_libraries(test_palette_default_shape PRIVATE palette)
+add_test(
+    NAME palette_default_shape
+    COMMAND test_palette_default_shape
+)
