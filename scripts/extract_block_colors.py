@@ -62,10 +62,25 @@ grass_block_side; oak_log vs oak_log_top; etc.). For v0.1 we pick the
   1. ``block/<name>.png``                  (single-texture blocks)
   2. ``block/<name>_top.png``              (top-distinguished blocks)
   3. ``block/<name>_side.png``             (side-distinguished fallback)
-  4. first alphabetical ``block/<name>_*.png`` match (anomaly path)
 
-The resolved path is recorded in the CSV's ``texture_path`` column so a
-future matcher can re-extract a different face if needed.
+If none of (1)-(3) hit, six documented family-alias fallback patterns
+(see ``OPEN_QUESTIONS.md`` 2026-06-20 "Extractor texture-resolution
+fallbacks") are tried in order:
+
+  Pattern 1: ``<name>_wood`` -> ``<name>_log.png``      (wood face uses log side)
+  Pattern 2: ``waxed_<name>`` -> ``<name>`` lookup      (waxed copper shares texture)
+  Pattern 3: ``infested_<name>`` -> ``<name>`` lookup   (infested shares host stone)
+  Pattern 4: ``smooth_<name>`` -> ``<name>_top.png`` / ``<name>.png``
+  Pattern 5: ``<name>_hyphae`` -> ``<name>_stem.png``   (nether wood face uses stem side)
+  Pattern 6: explicit name remap                        (magma_block, dried_kelp_block, sticky_piston)
+  Pattern 7: ``<name>_front.png``                       (dispenser/dropper-style)
+
+If none of the patterns match, an anomaly path picks the first
+alphabetical ``block/<name>_*.png`` match. Stderr emits ``info: ...``
+for each fallback used and ``warning: ...`` for anomaly picks or
+unrecoverable exclusions. The resolved path is recorded in the CSV's
+``texture_path`` column so a future matcher can re-extract a different
+face if needed.
 
 Tint application (per palette_db_proposal.md §3.7)
 --------------------------------------------------
@@ -109,10 +124,13 @@ EXCLUDE_AIR = {"air", "cave_air", "void_air"}
 EXCLUDE_FLUIDS = {"water", "lava", "bubble_column"}
 
 # Debug / admin — never placeable by the matcher.
+# `test_block` is a 1.21.5 dev/debug-only block whose only PNGs are
+# variant-state indicators (`test_block_accept.png`, `_fail.png`, `_log.png`,
+# `_start.png`); not a regular placeable block, so it joins the admin list.
 EXCLUDE_ADMIN = {
     "barrier", "light", "structure_void", "structure_block",
     "jigsaw", "command_block", "chain_command_block",
-    "repeating_command_block", "debug_stick",
+    "repeating_command_block", "debug_stick", "test_block",
 }
 
 # Partial-block name suffixes. Names matching any of these are NOT full cubes
@@ -142,6 +160,29 @@ FULL_CUBE_ALLOWLIST = {
     "cyan_stained_glass", "purple_stained_glass", "blue_stained_glass",
     "brown_stained_glass", "green_stained_glass", "red_stained_glass",
     "black_stained_glass", "tinted_glass",
+}
+
+# Pattern 6 — explicit name remaps for blocks whose texture filename diverges
+# from the block name and isn't covered by primary-face lookup nor a family
+# prefix/suffix fallback. Each value is a filename under
+# `assets/minecraft/textures/block/` chosen as the "most visible from a
+# top-down voxelisation viewpoint". Verified to exist in 1.21.5 (above).
+EXPLICIT_TEXTURE_REMAP = {
+    # `magma_block` ships only `magma.png` (animated 16x48; avg colour over all
+    # frames is the orange-red lava tone — see scripts ground-truth comment).
+    "magma_block": "magma.png",
+    # `dried_kelp_block` has top/bottom/side variants; side is the most
+    # representative face for matcher purposes.
+    "dried_kelp_block": "dried_kelp_side.png",
+    # `sticky_piston` ships only `sticky_piston_top` + `piston_*`; piston_side
+    # (the body) is more representative than the small sticky head on top.
+    "sticky_piston": "piston_side.png",
+    # `smooth_quartz` strips to `quartz`, but the unsmoothed base block is
+    # actually called `quartz_block` (MC naming quirk: `smooth_sandstone` ->
+    # `sandstone` works because the base IS `sandstone`, but `quartz_block` is
+    # the only block in this family with the `_block` suffix). Pattern 4 misses
+    # for this one block; the explicit remap recovers it.
+    "smooth_quartz": "quartz_block_top.png",
 }
 
 # Plains-biome default tints in sRGB-uint8 (proposal §3.7).
@@ -182,32 +223,101 @@ def is_excluded(name: str) -> bool:
     return name in EXCLUDE_AIR or name in EXCLUDE_FLUIDS or name in EXCLUDE_ADMIN
 
 
-def resolve_texture(jar_namelist: list[str], block_name: str) -> str | None:
-    """Find the PNG path for ``block_name`` per the multi-texture lookup order
-    (proposal + OPEN_QUESTIONS.md 2026-06-20).
+def resolve_texture(
+    jar_nameset: set[str], jar_namelist: list[str], block_name: str
+) -> tuple[str | None, int | None]:
+    """Find the PNG path for ``block_name``.
 
-    Returns the full jar entry path (e.g.
-    ``assets/minecraft/textures/block/grass_block_top.png``) or None.
+    Returns ``(path, pattern_id)`` where ``pattern_id`` is:
+
+    * ``None`` for a direct primary-face hit (``<name>.png`` / ``_top`` / ``_side``)
+      or when nothing matched (``path`` is also ``None`` in that case).
+    * ``1``-``7`` for one of the documented family-alias fallback patterns
+      (see OPEN_QUESTIONS.md 2026-06-20 "Extractor texture-resolution fallbacks").
+    * ``8`` for the anomaly first-alphabetical match.
+
+    Caller emits stderr ``info:`` / ``warning:`` lines based on ``pattern_id``.
     """
     prefix = "assets/minecraft/textures/block/"
-    candidates_in_order = [
-        f"{prefix}{block_name}.png",
-        f"{prefix}{block_name}_top.png",
-        f"{prefix}{block_name}_side.png",
-    ]
-    nameset = set(jar_namelist)
-    for c in candidates_in_order:
-        if c in nameset:
-            return c
+
+    def try_primary(name: str) -> str | None:
+        """Direct primary-face lookup. Returns the first matching path or None."""
+        for suffix in ("", "_top", "_side"):
+            c = f"{prefix}{name}{suffix}.png"
+            if c in jar_nameset:
+                return c
+        return None
+
+    # Direct lookup (proposal + OPEN_QUESTIONS.md 2026-06-20 default order).
+    direct = try_primary(block_name)
+    if direct is not None:
+        return (direct, None)
+
+    # Pattern 6 — explicit name remap. Checked before family-prefix patterns
+    # so an entry like `magma_block` doesn't get hijacked by a future family rule.
+    if block_name in EXPLICIT_TEXTURE_REMAP:
+        c = prefix + EXPLICIT_TEXTURE_REMAP[block_name]
+        if c in jar_nameset:
+            return (c, 6)
+
+    # Pattern 1 — *_wood / stripped_*_wood -> *_log / stripped_*_log.
+    # The "wood" model uses the log's side texture on all six faces.
+    if block_name.endswith("_wood"):
+        base = block_name[: -len("_wood")]
+        c = f"{prefix}{base}_log.png"
+        if c in jar_nameset:
+            return (c, 1)
+
+    # Pattern 5 — *_hyphae / stripped_*_hyphae -> *_stem / stripped_*_stem.
+    # Same scheme as wood->log, but for nether woods (warped, crimson).
+    if block_name.endswith("_hyphae"):
+        base = block_name[: -len("_hyphae")]
+        c = f"{prefix}{base}_stem.png"
+        if c in jar_nameset:
+            return (c, 5)
+
+    # Pattern 2 — waxed_* -> unwaxed primary lookup (single level, no recursion).
+    # Waxed copper variants share textures verbatim with their unwaxed
+    # counterparts (the wax coating is a state, not a texture).
+    if block_name.startswith("waxed_"):
+        unwaxed = block_name[len("waxed_") :]
+        c = try_primary(unwaxed)
+        if c is not None:
+            return (c, 2)
+
+    # Pattern 3 — infested_* -> host stone variant.
+    # The silverfish-hideout block reuses the host stone's texture.
+    if block_name.startswith("infested_"):
+        host = block_name[len("infested_") :]
+        c = try_primary(host)
+        if c is not None:
+            return (c, 3)
+
+    # Pattern 4 — smooth_* -> base _top first, then base.
+    # Smooth variants use the unsmoothed block's *top* face (which lacks
+    # the "frame" pattern), e.g. smooth_sandstone uses sandstone_top.
+    if block_name.startswith("smooth_"):
+        base = block_name[len("smooth_") :]
+        for suffix in ("_top", ""):
+            c = f"{prefix}{base}{suffix}.png"
+            if c in jar_nameset:
+                return (c, 4)
+
+    # Pattern 7 — dispenser/dropper-style: prefer _side (if a future MC version
+    # ships one), then _front. In 1.21.5 only `_front.png` exists for these two
+    # blocks (the actual `_side` texture lives in `furnace_side.png` via the
+    # block model JSON, which the extractor doesn't parse); the directive
+    # accommodates future MC versions that may add `<name>_side.png`.
+    c_front = f"{prefix}{block_name}_front.png"
+    if c_front in jar_nameset:
+        return (c_front, 7)
+
     # Anomaly path: first alphabetical ``block_name_*.png`` match.
     pattern = re.compile(rf"^{re.escape(prefix + block_name)}_[^/]+\.png$")
     matches = sorted(p for p in jar_namelist if pattern.match(p))
     if matches:
-        sys.stderr.write(
-            f"warning: anomaly texture-pick for {block_name!r}: chose {matches[0]!r}\n"
-        )
-        return matches[0]
-    return None
+        return (matches[0], 8)
+    return (None, None)
 
 
 def constant_tints_from_json(tints_json: dict) -> dict[str, tuple[int, int, int]]:
@@ -330,10 +440,12 @@ def main() -> int:
         "examined": 0, "excl_air": 0, "excl_fluid": 0, "excl_admin": 0,
         "excl_partial": 0, "excl_no_texture": 0, "rows_written": 0,
     }
+    fallback_counts = {p: 0 for p in (1, 2, 3, 4, 5, 6, 7, 8)}
 
     rows: list[tuple[str, int, int, int, int, int, bool, str]] = []
     with zipfile.ZipFile(args.jar) as jar:
-        jar_names = jar.namelist()
+        jar_namelist = jar.namelist()
+        jar_nameset = set(jar_namelist)
         for block in sorted(blocks, key=lambda b: b["id"]):
             name = block["name"]
             counts["examined"] += 1
@@ -349,13 +461,23 @@ def main() -> int:
             if not is_full_cube(name, block):
                 counts["excl_partial"] += 1
                 continue
-            tex_path = resolve_texture(jar_names, name)
+            tex_path, pattern_id = resolve_texture(jar_nameset, jar_namelist, name)
             if tex_path is None:
                 counts["excl_no_texture"] += 1
                 sys.stderr.write(
                     f"warning: no texture found for {name!r}; excluding\n"
                 )
                 continue
+            if pattern_id is not None:
+                fallback_counts[pattern_id] += 1
+                if pattern_id == 8:
+                    sys.stderr.write(
+                        f"warning: anomaly texture-pick for {name!r}: chose {tex_path!r}\n"
+                    )
+                else:
+                    sys.stderr.write(
+                        f"info: {name!r} resolved via fallback pattern {pattern_id}: {tex_path}\n"
+                    )
             png_bytes = jar.read(tex_path)
             tint = pick_tint(name, constants)
             r, g, b = average_color_with_tint(png_bytes, tint)
@@ -380,17 +502,25 @@ def main() -> int:
         for (name, op, lu, r, g, b, fc, tp) in rows
     ]
 
-    # The CSV body is rows sorted by minecraft-data id (insertion order above).
-    body = "\n".join(header_lines + body_lines) + "\n"
-    body_sha = hashlib.sha256(body.encode()).hexdigest()
+    # The CSV file is rows sorted by minecraft-data id (insertion order above)
+    # preceded by header lines. `body_sha` is computed over the data rows only
+    # so it is byte-stable across re-runs (the `# generated:` timestamp in the
+    # header changes per run by design — it's an audit-trail field, not part
+    # of the catalog identity).
+    file_text = "\n".join(header_lines + body_lines) + "\n"
+    body_sha = hashlib.sha256(("\n".join(body_lines) + "\n").encode()).hexdigest()
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(body)
+    args.out.write_text(file_text)
 
+    fb_summary = ", ".join(
+        f"p{p}={n}" for p, n in fallback_counts.items() if n > 0
+    ) or "none"
     print(
         f"extracted {counts['rows_written']} blocks (examined {counts['examined']}); "
         f"excluded: air={counts['excl_air']}, fluid={counts['excl_fluid']}, "
         f"admin={counts['excl_admin']}, partial={counts['excl_partial']}, "
         f"no_texture={counts['excl_no_texture']}\n"
+        f"fallback patterns used: {fb_summary}\n"
         f"output: {args.out}\n"
         f"sha256(body): {body_sha}",
         file=sys.stdout,
