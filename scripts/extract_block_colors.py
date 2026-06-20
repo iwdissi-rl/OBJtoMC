@@ -95,6 +95,18 @@ textures by the plains-biome defaults at extract time:
 Tint multiplication happens in linear-RGB space, then sRGB-encoded for
 storage. Output CSV stores sRGB-uint8; the C++ loader gamma-decodes on
 parse per proposal §3.4.
+
+is_full_cube derivation (Session 20a.6, supersedes proposal §3.6)
+----------------------------------------------------------------
+The Session 19/20a proxy (``filterLight == 15 AND boundingBox == 'block'
+AND not in deny-list``) was a directionally-correct heuristic but missed
+transparent full cubes (leaves, snow_block, mangrove_roots) and
+false-positived on geometrically-partial blocks (dirt_path, farmland,
+enchanting_table — all of which have ``boundingBox == 'block'`` yet
+their model JSON's elements are sub-cube). Session 20a.6 amends §3.6 to
+read the MC block model JSON directly. See ``is_full_cube_by_model``,
+``KNOWN_FULL_CUBE_PARENTS`` (the fast-path parent set), and DECISIONS.md
+2026-06-20 "is_full_cube re-derived from model JSON geometry".
 """
 
 from __future__ import annotations
@@ -124,13 +136,17 @@ EXCLUDE_AIR = {"air", "cave_air", "void_air"}
 EXCLUDE_FLUIDS = {"water", "lava", "bubble_column"}
 
 # Debug / admin — never placeable by the matcher.
-# `test_block` is a 1.21.5 dev/debug-only block whose only PNGs are
-# variant-state indicators (`test_block_accept.png`, `_fail.png`, `_log.png`,
-# `_start.png`); not a regular placeable block, so it joins the admin list.
+# `test_block` + `test_instance_block` are 1.21.5 dev/debug-only blocks whose
+# only PNGs are variant-state indicators (`test_block_accept.png`, etc., or
+# `test_instance_block.png`); not regular placeable blocks, so they join the
+# admin list. `test_instance_block`'s model has `parent: block/cube_all` so
+# the Session 20a.6 model-JSON path would otherwise INCLUDE it — the explicit
+# admin exclusion overrides.
 EXCLUDE_ADMIN = {
     "barrier", "light", "structure_void", "structure_block",
     "jigsaw", "command_block", "chain_command_block",
-    "repeating_command_block", "debug_stick", "test_block",
+    "repeating_command_block", "debug_stick",
+    "test_block", "test_instance_block",
 }
 
 # Partial-block name suffixes. Names matching any of these are NOT full cubes
@@ -149,7 +165,11 @@ PARTIAL_NAME_SUBSTRINGS = (
     "ladder", "iron_bars",
 )
 
-# Transparent solids that fail filterLight==15 but ARE full cubes (proposal §3.6).
+# Transparent solids that fail filterLight==15 but ARE full cubes (proposal
+# §3.6). Belt-and-suspenders carry-over: the Session 20a.6 model-JSON path
+# (see `is_full_cube_by_model` below) also catches these, but we keep the
+# explicit allow-list so a future MC asset reshuffle doesn't silently drop
+# them. Each entry's match is logged as `reason='allowlist'`.
 FULL_CUBE_ALLOWLIST = {
     "glass", "ice", "packed_ice", "blue_ice", "frosted_ice",
     "slime_block", "honey_block",
@@ -160,6 +180,40 @@ FULL_CUBE_ALLOWLIST = {
     "cyan_stained_glass", "purple_stained_glass", "blue_stained_glass",
     "brown_stained_glass", "green_stained_glass", "red_stained_glass",
     "black_stained_glass", "tinted_glass",
+    # Mushroom blocks. Their canonical model is `template_single_face` (a 2D
+    # plane on the north face); the renderer composites up to 6 single-face
+    # models per visible side via the 64-variant blockstate. The Session 20a.6
+    # model-JSON predicate sees the canonical face-template (NOT full cube);
+    # the in-game appearance is a full cube of mushroom material.
+    "brown_mushroom_block", "red_mushroom_block", "mushroom_stem",
+}
+
+# Model templates whose resolved geometry is a single [0,0,0]-[16,16,16]
+# cuboid. A block is full-cube via the FAST PATH iff its parent chain transits
+# any of these (verified empirically against vanilla 1.21.5 — every cube_* and
+# leaves template's elements satisfy the strict geometric predicate). Names
+# are normalized to drop the optional `minecraft:` prefix. See DECISIONS.md
+# 2026-06-20 "is_full_cube re-derived from model JSON geometry (proposal §3.6
+# amendment)".
+KNOWN_FULL_CUBE_PARENTS: set[str] = {
+    "block/cube",
+    "block/cube_all",
+    "block/cube_all_inner_faces",
+    "block/cube_bottom_top",
+    "block/cube_bottom_top_inner_faces",
+    "block/cube_column",
+    "block/cube_column_horizontal",
+    "block/cube_column_mirrored",
+    "block/cube_column_uv_locked_x",
+    "block/cube_column_uv_locked_y",
+    "block/cube_column_uv_locked_z",
+    "block/cube_directional",
+    "block/cube_mirrored",
+    "block/cube_mirrored_all",
+    "block/cube_north_west_mirrored",
+    "block/cube_north_west_mirrored_all",
+    "block/cube_top",
+    "block/leaves",
 }
 
 # Pattern 6 — explicit name remaps for blocks whose texture filename diverges
@@ -183,6 +237,13 @@ EXPLICIT_TEXTURE_REMAP = {
     # the only block in this family with the `_block` suffix). Pattern 4 misses
     # for this one block; the explicit remap recovers it.
     "smooth_quartz": "quartz_block_top.png",
+    # `snow_block`'s model binds `textures.all` to `block/snow` (the same PNG
+    # the 1-8-layer snow uses); no `snow_block.png` ships. Discovered when the
+    # Session 20a.6 model-JSON path correctly classified snow_block as full
+    # cube but the texture resolver had no match. Surgical: a future iteration
+    # could read the texture binding from the model JSON directly; for v0.1
+    # this single explicit remap is sufficient.
+    "snow_block": "snow.png",
 }
 
 # Plains-biome default tints in sRGB-uint8 (proposal §3.7).
@@ -208,8 +269,13 @@ def linear_to_srgb(c: float) -> float:
     return 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1.0 / 2.4)) - 0.055
 
 
-def is_full_cube(name: str, block: dict) -> bool:
-    """Proposal §3.6 derivation."""
+def _legacy_is_full_cube_proxy(name: str, block: dict) -> bool:
+    """Proposal §3.6 derivation. Used ONLY as a defensive fallback when the
+    Session 20a.6 model-JSON path can't resolve a model for ``name`` (doesn't
+    fire on vanilla 1.21.5; here for forward-compat with future MC versions
+    that might add a block whose blockstate JSON the extractor doesn't know
+    how to walk). The authoritative predicate is ``is_full_cube_by_model``.
+    """
     if name in FULL_CUBE_ALLOWLIST:
         return True
     if any(name.endswith(s) for s in PARTIAL_SUFFIXES):
@@ -217,6 +283,216 @@ def is_full_cube(name: str, block: dict) -> bool:
     if any(s in name for s in PARTIAL_NAME_SUBSTRINGS):
         return False
     return block.get("boundingBox") == "block" and block.get("filterLight") == 15
+
+
+# -----------------------------------------------------------------------------
+# Model-JSON-driven `is_full_cube` (Session 20a.6 amendment to proposal §3.6;
+# see DECISIONS.md 2026-06-20). The MC block model JSON is the authoritative
+# source for a block's voxel geometry — it's the same data the MC renderer
+# uses to draw the world. The Session 19/20a proxy
+# (``filterLight == 15 AND boundingBox == 'block' AND not deny-listed``) was
+# directionally correct but missed transparent full cubes (leaves family,
+# snow_block, etc.) and false-positived on some boundingBox=='block' blocks
+# that are geometrically partial (e.g. dirt_path, enchanting_table).
+# -----------------------------------------------------------------------------
+
+
+def _normalize_model_name(name: str) -> str:
+    """Strip the optional 'minecraft:' namespace prefix from a model name.
+    Returns names like 'block/cube_all'.
+    """
+    if name.startswith("minecraft:"):
+        return name[len("minecraft:"):]
+    return name
+
+
+def _load_model_json(
+    jar: zipfile.ZipFile, jar_nameset: set[str], model_name: str,
+) -> dict | None:
+    """Load ``assets/minecraft/models/<model_name>.json`` from the jar.
+    ``model_name`` is normalized (e.g. ``'block/cube_all'``). Returns None
+    if the file is absent.
+    """
+    path = f"assets/minecraft/models/{model_name}.json"
+    if path not in jar_nameset:
+        return None
+    return json.loads(jar.read(path))
+
+
+def _resolve_block_model_name(
+    jar: zipfile.ZipFile, jar_nameset: set[str], block_name: str,
+) -> str | None:
+    """Return the canonical model name (e.g. ``'block/oak_leaves'`` or
+    ``'block/snow_height2'``) for a given block. Resolution order:
+
+      1. ``models/block/<block_name>.json`` (the simple, common case —
+         821/1104 of 1.21.5 blocks).
+      2. ``blockstates/<block_name>.json`` -> pick a deterministic default
+         variant (283/1104). Prefers the ``""`` (default) variant; else the
+         lexicographically-smallest variant key; for multipart blocks, the
+         first part's apply.model.
+
+    Returns the normalized model name, or None if neither file exists.
+    """
+    direct = f"block/{block_name}"
+    if f"assets/minecraft/models/{direct}.json" in jar_nameset:
+        return direct
+    bs_path = f"assets/minecraft/blockstates/{block_name}.json"
+    if bs_path not in jar_nameset:
+        return None
+    bs = json.loads(jar.read(bs_path))
+    if "variants" in bs:
+        variants = bs["variants"]
+        if "" in variants:
+            v = variants[""]
+        else:
+            # Determinism: pick lexicographically-smallest variant key.
+            v = variants[sorted(variants.keys())[0]]
+        if isinstance(v, list):  # weighted random list
+            v = v[0]
+        model = v.get("model") if isinstance(v, dict) else None
+        return _normalize_model_name(model) if model else None
+    if "multipart" in bs:
+        # Multipart blocks are fences/walls/redstone_wire — all partials.
+        # Pick the first part's apply.model for determinism; the geometry
+        # check classifies it as partial.
+        parts = bs["multipart"]
+        if parts:
+            apply = parts[0].get("apply", {})
+            if isinstance(apply, list):
+                apply = apply[0]
+            model = apply.get("model") if isinstance(apply, dict) else None
+            return _normalize_model_name(model) if model else None
+    return None
+
+
+def _resolve_model_chain(
+    jar: zipfile.ZipFile, jar_nameset: set[str], model_name: str,
+    cache: dict,
+) -> tuple[list[str], list[dict]]:
+    """Walk the parent chain of ``model_name``, returning:
+
+      - the ancestor chain (list of normalized names, child-first), and
+      - the resolved ``elements`` list (child wins over parent; the first
+        ``elements`` found while walking child->root is authoritative).
+
+    Raises ``ValueError`` on cycles. Memoizes via ``cache`` so common
+    templates (cube_all, leaves, slab, stairs, ...) are walked only once.
+    """
+    if model_name in cache:
+        return cache[model_name]
+    visited: set[str] = set()
+    chain: list[str] = []
+    elements: list[dict] | None = None
+    current: str | None = model_name
+    while current is not None:
+        if current in visited:
+            raise ValueError(
+                f"parent-chain cycle detected at {current!r} "
+                f"(chain so far: {chain})"
+            )
+        visited.add(current)
+        chain.append(current)
+        data = _load_model_json(jar, jar_nameset, current)
+        if data is None:
+            # Unknown parent — treat as a terminal with no elements.
+            break
+        if elements is None and "elements" in data:
+            # Child-wins: first encountered ``elements`` (closest to leaf) is
+            # authoritative. Continue walking to populate the full chain so
+            # the fast-path's "transits known cube parent" check can fire.
+            elements = data["elements"]
+        parent = data.get("parent")
+        current = _normalize_model_name(parent) if parent else None
+    result = (chain, elements or [])
+    cache[model_name] = result
+    return result
+
+
+def _is_full_cube_element(e: dict) -> bool:
+    """True iff this single element is a full [0,0,0]-[16,16,16] cuboid with
+    no/trivial rotation.
+    """
+    if e.get("from") != [0, 0, 0]:
+        return False
+    if e.get("to") != [16, 16, 16]:
+        return False
+    rot = e.get("rotation")
+    if rot is not None and rot.get("angle", 0) != 0:
+        return False
+    return True
+
+
+def _has_full_cube_element(elements: list[dict]) -> bool:
+    """Geometric predicate: the elements list contains AT LEAST ONE full
+    [0,0,0]-[16,16,16] cuboid with no/trivial rotation. MC model geometry is
+    additive (no boolean subtraction), so the presence of a full cube element
+    means the block visually occupies the full voxel — additional elements
+    (e.g. grass_block's tint-overlay plane) are decorations, not subtractions.
+    """
+    return any(_is_full_cube_element(e) for e in elements)
+
+
+def is_full_cube_by_model(
+    jar: zipfile.ZipFile, jar_nameset: set[str], block_name: str,
+    block: dict, cache: dict,
+) -> tuple[bool, str]:
+    """Authoritative is-full-cube predicate (Session 20a.6, DECISIONS.md
+    2026-06-20). Returns ``(is_full, reason)`` where ``reason`` describes
+    which step in the resolution order made the call (for diagnostic logs).
+
+    Resolution order:
+
+      1. ``allowlist``: ``FULL_CUBE_ALLOWLIST`` — glass/ice/slime/honey family.
+      2. ``model-parent:<P>``: parent chain transits a known full-cube
+         template ``P`` (fast path; ``KNOWN_FULL_CUBE_PARENTS``).
+      3. ``model-geometry:1elem-full`` / ``model-geometry:Nelem-has-full``:
+         the resolved elements list contains at least one [0,0,0]-[16,16,16]
+         cuboid with no/trivial rotation. MC model geometry is additive
+         (no boolean subtraction), so the presence of a full cube element
+         means the block visually occupies the full voxel — additional
+         elements (e.g. grass_block's tint-overlay plane) are decorations.
+      4. ``model-missing+legacy-{pass,fail}``: no model resolvable for the
+         block; fall back to the legacy proposal §3.6 proxy. Defensive only;
+         doesn't fire on vanilla 1.21.5.
+
+    Partial reasons (returned with ``is_full=False``) include:
+    ``model-geometry:no-elements`` (chest-style block-entity-rendered blocks),
+    ``model-geometry:Nelem-no-full`` (composters, cauldrons, mangrove_roots
+    — multiple sub-cube elements, none full-sized),
+    ``model-geometry:1elem-not-full`` (dirt_path [0,0,0]-[16,15,16],
+    enchanting_table [0,0,0]-[16,12,16], farmland), and
+    ``model-missing+legacy-fail``.
+    """
+    if block_name in FULL_CUBE_ALLOWLIST:
+        return (True, "allowlist")
+
+    model_name = _resolve_block_model_name(jar, jar_nameset, block_name)
+    if model_name is None:
+        legacy = _legacy_is_full_cube_proxy(block_name, block)
+        return (legacy, "model-missing+legacy-pass" if legacy
+                else "model-missing+legacy-fail")
+
+    chain, elements = _resolve_model_chain(jar, jar_nameset, model_name, cache)
+
+    # Fast path: parent shortcut.
+    for ancestor in chain:
+        if ancestor in KNOWN_FULL_CUBE_PARENTS:
+            return (True, f"model-parent:{ancestor}")
+
+    # Geometric path: any element is a full [0,0,0]-[16,16,16] cuboid.
+    if _has_full_cube_element(elements):
+        # Distinguish single-element vs multi-element-with-overlay for diagnostics.
+        if len(elements) == 1:
+            return (True, "model-geometry:1elem-full")
+        return (True, f"model-geometry:{len(elements)}elem-has-full")
+
+    # Not full-cube — classify the rejection reason for diagnostics.
+    if not elements:
+        return (False, "model-geometry:no-elements")
+    if len(elements) > 1:
+        return (False, f"model-geometry:{len(elements)}elem-no-full")
+    return (False, "model-geometry:1elem-not-full")
 
 
 def is_excluded(name: str) -> bool:
@@ -438,9 +714,19 @@ def main() -> int:
 
     counts = {
         "examined": 0, "excl_air": 0, "excl_fluid": 0, "excl_admin": 0,
-        "excl_partial": 0, "excl_no_texture": 0, "rows_written": 0,
+        "excl_partial_geometry": 0,    # model-geometry says partial (authoritative)
+        "excl_partial_legacy": 0,      # model JSON missing -> legacy proxy says partial
+        "excl_no_texture": 0,
+        "rows_written": 0,
     }
     fallback_counts = {p: 0 for p in (1, 2, 3, 4, 5, 6, 7, 8)}
+    # `is_full_cube_reason` -> count, so the diagnostic summary can show which
+    # mechanism made each call (e.g. how many blocks landed via 'model-parent:
+    # block/cube_all' vs 'model-geometry:1elem-full' vs 'allowlist').
+    reason_counts: dict[str, int] = {}
+    # Memoization for the parent-chain walker (typical templates like
+    # 'block/cube_all', 'block/leaves', 'block/slab' are walked exactly once).
+    model_cache: dict = {}
 
     rows: list[tuple[str, int, int, int, int, int, bool, str]] = []
     with zipfile.ZipFile(args.jar) as jar:
@@ -458,8 +744,25 @@ def main() -> int:
             if name in EXCLUDE_ADMIN:
                 counts["excl_admin"] += 1
                 continue
-            if not is_full_cube(name, block):
-                counts["excl_partial"] += 1
+            try:
+                is_full, reason = is_full_cube_by_model(
+                    jar, jar_nameset, name, block, model_cache,
+                )
+            except ValueError as e:
+                # Parent-chain cycle in vanilla data — should never happen.
+                sys.stderr.write(
+                    f"error: model-JSON walk failed for {name!r}: {e}\n"
+                )
+                return 3
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            if not is_full:
+                if reason.startswith("model-missing+legacy"):
+                    counts["excl_partial_legacy"] += 1
+                else:
+                    counts["excl_partial_geometry"] += 1
+                # Log partial-classification reason (sampled — too noisy to log
+                # all 700ish, but interesting ones surface via per-reason
+                # totals in the end-of-run summary).
                 continue
             tex_path, pattern_id = resolve_texture(jar_nameset, jar_namelist, name)
             if tex_path is None:
@@ -515,12 +818,33 @@ def main() -> int:
     fb_summary = ", ".join(
         f"p{p}={n}" for p, n in fallback_counts.items() if n > 0
     ) or "none"
+    # Group reason_counts into full-cube vs partial sub-totals for the summary.
+    # Full-pass reasons: 'allowlist', 'model-parent:*', 'model-geometry:1elem-full',
+    # 'model-missing+legacy-pass'. Everything else is a partial-classification reason.
+    full_pass = {"allowlist", "model-geometry:1elem-full", "model-missing+legacy-pass"}
+    def _is_full_reason(r: str) -> bool:
+        return (r in full_pass or r.startswith("model-parent:")
+                or r.endswith("-has-full"))
+    full_reasons = sorted(
+        ((r, n) for r, n in reason_counts.items() if _is_full_reason(r)),
+        key=lambda kv: (-kv[1], kv[0]),
+    )
+    partial_reasons = sorted(
+        ((r, n) for r, n in reason_counts.items() if not _is_full_reason(r)),
+        key=lambda kv: (-kv[1], kv[0]),
+    )
+    full_summary = ", ".join(f"{r}={n}" for r, n in full_reasons) or "none"
+    partial_summary = ", ".join(f"{r}={n}" for r, n in partial_reasons) or "none"
     print(
         f"extracted {counts['rows_written']} blocks (examined {counts['examined']}); "
         f"excluded: air={counts['excl_air']}, fluid={counts['excl_fluid']}, "
-        f"admin={counts['excl_admin']}, partial={counts['excl_partial']}, "
+        f"admin={counts['excl_admin']}, "
+        f"partial-by-model-geometry={counts['excl_partial_geometry']}, "
+        f"partial-by-suffix-fallback={counts['excl_partial_legacy']}, "
         f"no_texture={counts['excl_no_texture']}\n"
-        f"fallback patterns used: {fb_summary}\n"
+        f"is_full_cube full-pass reasons: {full_summary}\n"
+        f"is_full_cube partial reasons: {partial_summary}\n"
+        f"texture fallback patterns used: {fb_summary}\n"
         f"output: {args.out}\n"
         f"sha256(body): {body_sha}",
         file=sys.stdout,
