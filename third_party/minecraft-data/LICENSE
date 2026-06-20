@@ -1,0 +1,39 @@
+PrismarineJS/minecraft-data — License declaration
+=================================================
+
+SPDX-License-Identifier: MIT
+
+Upstream:    https://github.com/PrismarineJS/minecraft-data
+Pinned SHA:  d4d349218383bc0befcdd8bb0adac135234fe5d7  (Release 3.111.0, 2026-06-18)
+
+NOTE: The upstream repository does NOT carry a standalone LICENSE file at
+the pinned SHA above. The licence is declared inline in README.md §License.
+A future reader can re-derive this declaration:
+
+    curl -sSL \
+      https://raw.githubusercontent.com/PrismarineJS/minecraft-data/d4d349218383bc0befcdd8bb0adac135234fe5d7/README.md \
+      | sed -n '145,150p'
+
+The declaration is reproduced verbatim below.
+
+----- BEGIN VERBATIM upstream README.md §License -----
+
+## License
+
+MIT
+
+Some of the data was extracted manually or automatically from wiki.vg and minecraft.gamepedia.com.
+If required by one of the sources the license might change to something more appropriate.
+
+----- END VERBATIM upstream README.md §License -----
+
+The "MIT" identifier is the SPDX short identifier for the MIT License
+(https://spdx.org/licenses/MIT.html). Upstream's README does not reproduce
+the full MIT text — for the canonical text see
+https://opensource.org/licenses/MIT.
+
+This vendored copy includes only the JSON data files listed in
+VERSION.txt; no upstream source code is vendored. The data files are
+factual measurements of in-game Minecraft behaviour (block names, light
+values, biome tints, etc.); the licence covers our redistribution of
+that derived data under PrismarineJS's MIT terms.

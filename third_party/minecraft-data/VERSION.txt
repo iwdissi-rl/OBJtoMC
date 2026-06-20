@@ -1,0 +1,51 @@
+upstream:        https://github.com/PrismarineJS/minecraft-data
+license:         MIT (declared in upstream README.md §License; no standalone LICENSE file)
+license-spdx:    MIT
+git-sha:         d4d349218383bc0befcdd8bb0adac135234fe5d7
+git-ref:         master    (branch; release 3.111.0, 2026-06-18)
+acquired:        2026-06-20
+acquired-by:     Session 20a (palette DB implementation)
+audited-by:      Session 19 (research/palette_db_proposal.md §1.5(a))
+
+mc-version:      1.21.5  (the only PrismarineJS version we vendor; matches
+                          the project's MC pin per DECISIONS.md 2026-05-25
+                          "Target is Minecraft Java Edition 1.21.5 /
+                          DataVersion 4325")
+
+Vendored files
+--------------
+
+source-url:      https://raw.githubusercontent.com/PrismarineJS/minecraft-data/d4d349218383bc0befcdd8bb0adac135234fe5d7/data/pc/1.21.5/blocks.json
+file-path:       pc/1.21.5/blocks.json
+file-sha256:     10918b7d90ca86267aa09ae637e7dfd6f75a8aa0e61105248196d8224c25bfeb
+file-size:       794021 bytes  (41306 lines, 1 104 block entries)
+
+source-url:      https://raw.githubusercontent.com/PrismarineJS/minecraft-data/d4d349218383bc0befcdd8bb0adac135234fe5d7/data/pc/1.21.5/tints.json
+file-path:       pc/1.21.5/tints.json
+file-sha256:     ba202a0b5c4b2f868950f9a2e57db59ab339126e38007295e6b42875177608b5
+file-size:       8837 bytes  (464 lines)
+
+source-url:      https://raw.githubusercontent.com/PrismarineJS/minecraft-data/d4d349218383bc0befcdd8bb0adac135234fe5d7/data/pc/1.21.5/version.json
+file-path:       pc/1.21.5/version.json
+file-sha256:     6744d0529d91b6448a2517c468b34a4915512cea0487f6c89a933d9c37943b7f
+file-size:       106 bytes  (5 lines; minecraftVersion="1.21.5", version=770)
+
+notes:           PrismarineJS/minecraft-data does NOT commit a standalone
+                 LICENSE file. The licence is declared inline in
+                 README.md §License (lines 145-149 at the pinned SHA above)
+                 as "MIT" with a note about source attribution. Our
+                 third_party/minecraft-data/LICENSE reproduces that
+                 declaration verbatim with provenance.
+
+                 Per the vendoring pattern (DECISIONS.md 2026-06-18,
+                 third_party/README.md): the git-sha above is the
+                 load-bearing record; git-ref is informational. The
+                 file-sha256 values let a future reader fetch the upstream
+                 commit and byte-diff against the vendored files.
+
+                 Vendored read-only. Customisation goes through the
+                 extractor (scripts/extract_block_colors.py) which reads
+                 these files + the user's MC client jar PNGs to produce
+                 data/block_palette_db.csv. The C++ loader (src/palette.cpp)
+                 reads these files + the CSV at runtime; no patches to the
+                 vendored copies.

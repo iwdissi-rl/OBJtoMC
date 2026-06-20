@@ -30,3 +30,35 @@ the project eventually declares.
   preamble inside `tiny_obj_loader.h`.
 - **Used by:** the OBJ Loading layer
   (`include/objtomc/mesh.hpp` + `src/mesh.cpp`).
+
+## PrismarineJS/minecraft-data
+
+- **Path in repo:** `third_party/minecraft-data/`
+- **Upstream:** https://github.com/PrismarineJS/minecraft-data
+- **Pinned commit:** `d4d349218383bc0befcdd8bb0adac135234fe5d7`
+  (Release 3.111.0, 2026-06-18 — master HEAD at vendor-time)
+- **Acquired:** 2026-06-20 (Session 20a)
+- **Audited:** 2026-06-19 (Session 19 — see
+  `research/palette_db_proposal.md` §1.5(a))
+- **License:** MIT (SPDX: `MIT`). Upstream does **not** commit a
+  standalone `LICENSE` file at the pinned SHA; the licence is
+  declared inline in `README.md §License`. Our vendored
+  `third_party/minecraft-data/LICENSE` reproduces that declaration
+  verbatim with re-derivation provenance (curl + sed command).
+- **Copyright:** Not declared by upstream beyond the README's MIT
+  reference. PrismarineJS is a multi-contributor open-source
+  community project.
+- **Vendored content:** JSON data files only — no source code.
+  - `pc/1.21.5/blocks.json` (794 021 bytes; 1 104 block entries
+    with `name`, `displayName`, `emitLight`, `filterLight`,
+    `boundingBox`, `transparent`, `states`, etc.)
+  - `pc/1.21.5/tints.json` (8 837 bytes; biome-tint reference for
+    `grass` / `foliage` / `water` / `redstone` / `constant`)
+  - `pc/1.21.5/version.json` (106 bytes;
+    `minecraftVersion="1.21.5"`, `version=770`)
+- **Embedded sub-dependency:** none. JSON data only.
+- **Used by:** the Block Palette DB layer
+  (`include/objtomc/palette.hpp` + `src/palette.cpp`) for version
+  assert + per-block opacity/luminance cross-check at load time;
+  `scripts/extract_block_colors.py` for the per-block name list
+  and texture-tint applicability at extract time.

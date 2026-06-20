@@ -55,8 +55,24 @@ add_library(mesh STATIC src/mesh.cpp)
 target_include_directories(mesh PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mesh PRIVATE tinyobjloader)
 
+# ---------------------------------------------------------------------------
+# palette — Block Palette DB layer. Public header is pure-stdlib; the loader
+# reads two files at runtime:
+#   - data/block_palette_db.csv             (derived from MC textures)
+#   - third_party/minecraft-data/pc/1.21.5/blocks.json  (vendored MIT)
+# Paths are baked into the binary via OBJTOMC_PALETTE_DATA_DIR +
+# OBJTOMC_VENDOR_MINECRAFT_DATA_DIR so load_default_palette() works from any
+# cwd. The compile defs are PRIVATE so they don't pollute downstream TUs.
+# See research/palette_db_proposal.md §3.9 + DECISIONS.md 2026-06-19.
+# ---------------------------------------------------------------------------
+add_library(palette STATIC src/palette.cpp)
+target_include_directories(palette PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_compile_definitions(palette PRIVATE
+    OBJTOMC_PALETTE_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    OBJTOMC_VENDOR_MINECRAFT_DATA_DIR="${CMAKE_SOURCE_DIR}/third_party/minecraft-data")
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette)
 
 enable_testing()
 add_subdirectory(tests)

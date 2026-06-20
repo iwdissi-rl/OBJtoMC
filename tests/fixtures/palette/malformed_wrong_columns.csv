@@ -1,0 +1,10 @@
+# mc_version: 1.21.5
+# prismarinejs_sha: d4d349218383bc0befcdd8bb0adac135234fe5d7
+# extractor_commit: TEST_FIXTURE_NOT_REAL
+# extractor_pillow_version: TEST_FIXTURE_NOT_REAL
+# generated: 2026-06-20T00:00:00Z
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+#
+# Malformed: this row has only 5 columns (missing g, b, is_full_cube,
+# texture_path). The loader must reject with palette_error per §3.11(d).
+minecraft:stone,15,0,120

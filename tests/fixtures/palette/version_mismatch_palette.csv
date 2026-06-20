@@ -1,0 +1,14 @@
+# mc_version: 1.21.4
+# prismarinejs_sha: TEST_FIXTURE_NOT_REAL
+# extractor_commit: TEST_FIXTURE_NOT_REAL
+# extractor_pillow_version: TEST_FIXTURE_NOT_REAL
+# generated: 2026-06-20T00:00:00Z
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+#
+# TEST FIXTURE for proposal §3.11(e) version-mismatch test. The header
+# declares mc_version=1.21.4 but the test passes this CSV alongside the
+# vendored 1.21.5 blocks.json. The loader's version-assert must throw
+# palette_error with a clear message. Body rows are otherwise valid.
+minecraft:stone,15,0,120,120,120,1,
+minecraft:grass_block,15,0,120,160,90,1,
+minecraft:diamond_block,15,0,110,225,225,1,

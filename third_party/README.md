@@ -74,3 +74,15 @@ session, not a quiet bump:
   (tri-licensed MIT / Apache-2.0 / BSL-1.0) inline — see
   DECISIONS.md 2026-06-18 "Adopt tinyobjloader (pinned,
   vendored) for OBJ parsing".
+- `minecraft-data/` — JSON data feed (no source code), MIT.
+  Pinned to `master`-branch SHA
+  `d4d349218383bc0befcdd8bb0adac135234fe5d7` (Release 3.111.0,
+  2026-06-18). Acquired 2026-06-20 (Session 20a). Used by the
+  Block Palette DB layer (`src/palette.cpp`) for version assert
+  + per-block opacity/luminance cross-check, and by the
+  out-of-tree extractor `scripts/extract_block_colors.py`. Three
+  vendored files under `pc/1.21.5/`: `blocks.json`, `tints.json`,
+  `version.json`. Upstream does NOT commit a standalone LICENSE
+  file; our vendored `LICENSE` reproduces the upstream README's
+  inline MIT declaration with re-derivation provenance. See
+  DECISIONS.md 2026-06-19 "Block Palette DB scope (v0.1)".

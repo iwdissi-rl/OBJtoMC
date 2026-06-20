@@ -210,3 +210,65 @@ add_test(
     NAME mesh_bunny
     COMMAND test_mesh_bunny ${MESH_FIXTURES_DIR}/bunny.obj
 )
+
+# ---------------------------------------------------------------------------
+# Session 20a — Block Palette DB layer tests (research/palette_db_proposal.md
+# §3.11). Five C++ unit tests covering: shape (a), spot-check (b),
+# exclusions (c), malformed CSV (d), version mismatch (e). All five run
+# against the hand-curated fixture at tests/fixtures/palette/minimal_palette.csv;
+# the real data/block_palette_db.csv is produced by Session 20b's maintainer-
+# run of scripts/extract_block_colors.py and the test bounds are
+# fixture-scoped until then. Vendored blocks.json supplies the
+# cross-check + version-assert source.
+# ---------------------------------------------------------------------------
+set(PALETTE_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/palette)
+set(PALETTE_BLOCKS_JSON
+    ${CMAKE_SOURCE_DIR}/third_party/minecraft-data/pc/1.21.5/blocks.json)
+
+add_executable(test_palette_shape test_palette_shape.cpp)
+target_link_libraries(test_palette_shape PRIVATE palette)
+add_test(
+    NAME palette_shape
+    COMMAND test_palette_shape
+            ${PALETTE_FIXTURES_DIR}/minimal_palette.csv
+            ${PALETTE_BLOCKS_JSON}
+)
+
+add_executable(test_palette_spot_check test_palette_spot_check.cpp)
+target_link_libraries(test_palette_spot_check PRIVATE palette)
+add_test(
+    NAME palette_spot_check
+    COMMAND test_palette_spot_check
+            ${PALETTE_FIXTURES_DIR}/minimal_palette.csv
+            ${PALETTE_BLOCKS_JSON}
+)
+
+add_executable(test_palette_exclusions test_palette_exclusions.cpp)
+target_link_libraries(test_palette_exclusions PRIVATE palette)
+add_test(
+    NAME palette_exclusions
+    COMMAND test_palette_exclusions
+            ${PALETTE_FIXTURES_DIR}/minimal_palette.csv
+            ${PALETTE_BLOCKS_JSON}
+)
+
+add_executable(test_palette_malformed test_palette_malformed.cpp)
+target_link_libraries(test_palette_malformed PRIVATE palette)
+add_test(
+    NAME palette_malformed
+    COMMAND test_palette_malformed
+            ${PALETTE_FIXTURES_DIR}/does_not_exist.csv
+            ${PALETTE_FIXTURES_DIR}/malformed_wrong_columns.csv
+            ${PALETTE_FIXTURES_DIR}/malformed_opacity_oob.csv
+            ${PALETTE_FIXTURES_DIR}/malformed_nonnumeric_luminance.csv
+            ${PALETTE_BLOCKS_JSON}
+)
+
+add_executable(test_palette_version_mismatch test_palette_version_mismatch.cpp)
+target_link_libraries(test_palette_version_mismatch PRIVATE palette)
+add_test(
+    NAME palette_version_mismatch
+    COMMAND test_palette_version_mismatch
+            ${PALETTE_FIXTURES_DIR}/version_mismatch_palette.csv
+            ${PALETTE_BLOCKS_JSON}
+)

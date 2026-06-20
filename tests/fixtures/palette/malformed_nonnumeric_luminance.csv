@@ -1,0 +1,9 @@
+# mc_version: 1.21.5
+# prismarinejs_sha: d4d349218383bc0befcdd8bb0adac135234fe5d7
+# extractor_commit: TEST_FIXTURE_NOT_REAL
+# extractor_pillow_version: TEST_FIXTURE_NOT_REAL
+# generated: 2026-06-20T00:00:00Z
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+#
+# Malformed: luminance="bright" is non-numeric. Loader rejects.
+minecraft:stone,15,bright,120,120,120,1,
