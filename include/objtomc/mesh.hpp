@@ -23,8 +23,8 @@ namespace objtomc::mesh {
 // ---------------------------------------------------------------------------
 struct Material {
     std::string            name;     // from `newmtl <name>` in the .mtl
-    std::array<float, 3>   kd;       // diffuse  Kd,  default {0.5, 0.5, 0.5}
-    std::array<float, 3>   ke;       // emission Ke,  default {0, 0, 0}
+    std::array<float, 3>   kd;       // diffuse Kd, sRGB-gamma encoding (per MTL convention), default {0.5, 0.5, 0.5}
+    std::array<float, 3>   ke;       // emission Ke, sRGB-gamma encoding (per MTL convention), default {0, 0, 0}
     std::array<float, 3>   ks;       // specular Ks,  default {0, 0, 0}
     float                  d;        // alpha   d/Tr, default 1 (opaque)
     int                    illum;    // illumination model, default 2
