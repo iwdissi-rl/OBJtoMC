@@ -286,3 +286,50 @@ add_test(
     NAME palette_default_shape
     COMMAND test_palette_default_shape
 )
+
+# ---------------------------------------------------------------------------
+# Session 22 — Color Matching layer tests (research/matcher_proposal.md
+# §3.13). Seven C++ unit tests covering: default-palette smoke (a),
+# emission branch (b), transparency branch (c), determinism (d),
+# alphabetical tie-break (e), single-vs-batch consistency (f), error model
+# (g). Tests a/b/c/d/f exercise the real 414-entry catalog via
+# load_default_palette() (the same default-path resolution path the
+# voxelisation layer will use); test (e) drives load_palette_csv() against
+# a 2-row fixture with identical avg_color forcing the §3.12 alphabetical
+# tie-break; test (g) constructs an empty PaletteDB directly + NaN/Inf
+# Materials + invalid MatcherOptions. No Python oracle — the empirical
+# §1.5 harness IS the spec; tests are CI-time assertions of that spec
+# (proposal §6 verification posture).
+# ---------------------------------------------------------------------------
+add_executable(test_matcher_default_smoke test_matcher_default_smoke.cpp)
+target_link_libraries(test_matcher_default_smoke PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_default_smoke COMMAND test_matcher_default_smoke)
+
+add_executable(test_matcher_emission_branch test_matcher_emission_branch.cpp)
+target_link_libraries(test_matcher_emission_branch PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_emission_branch COMMAND test_matcher_emission_branch)
+
+add_executable(test_matcher_transparency_branch test_matcher_transparency_branch.cpp)
+target_link_libraries(test_matcher_transparency_branch PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_transparency_branch COMMAND test_matcher_transparency_branch)
+
+add_executable(test_matcher_determinism test_matcher_determinism.cpp)
+target_link_libraries(test_matcher_determinism PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_determinism COMMAND test_matcher_determinism)
+
+add_executable(test_matcher_tie_break test_matcher_tie_break.cpp)
+target_link_libraries(test_matcher_tie_break PRIVATE matcher palette mesh chunk)
+add_test(
+    NAME matcher_tie_break
+    COMMAND test_matcher_tie_break
+            ${PALETTE_FIXTURES_DIR}/tie_break_palette.csv
+            ${PALETTE_BLOCKS_JSON}
+)
+
+add_executable(test_matcher_batch_consistency test_matcher_batch_consistency.cpp)
+target_link_libraries(test_matcher_batch_consistency PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_batch_consistency COMMAND test_matcher_batch_consistency)
+
+add_executable(test_matcher_errors test_matcher_errors.cpp)
+target_link_libraries(test_matcher_errors PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_errors COMMAND test_matcher_errors)

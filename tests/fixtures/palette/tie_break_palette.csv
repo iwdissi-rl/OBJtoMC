@@ -1,0 +1,21 @@
+# mc_version: 1.21.5
+# prismarinejs_sha: TEST_FIXTURE_NOT_REAL
+# extractor_commit: TEST_FIXTURE_NOT_REAL
+# extractor_pillow_version: TEST_FIXTURE_NOT_REAL
+# generated: 2026-06-22T00:00:00Z
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+#
+# TEST FIXTURE for proposal §3.13 (e) matcher_tie_break.
+#
+# Two real MC block names (granite and stone — both PrismarineJS-known with
+# matching filterLight=15 / emitLight=0 so the loader's blocks.json
+# cross-check stays quiet) with INTENTIONALLY-IDENTICAL avg_color values.
+# This forces the matcher's three-tier tie-break (§3.12):
+#   1. opacity: both 15 (tied)
+#   2. luminance: both 0 (tied)
+#   3. alphabetical name: 'g' < 's' → granite wins
+#
+# Any colour works (the matcher is colour-blind in tie territory); using mid-
+# gray (120, 120, 120) keeps the picked target intuitive in test output.
+minecraft:granite,15,0,120,120,120,1,
+minecraft:stone,15,0,120,120,120,1,

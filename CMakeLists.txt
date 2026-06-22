@@ -71,8 +71,20 @@ target_compile_definitions(palette PRIVATE
     OBJTOMC_PALETTE_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
     OBJTOMC_VENDOR_MINECRAFT_DATA_DIR="${CMAKE_SOURCE_DIR}/third_party/minecraft-data")
 
+# ---------------------------------------------------------------------------
+# matcher — Color Matching layer. Consumes a palette::PaletteDB + mesh::Material
+# and produces a chunk::BlockState via Oklab perceptual matching. Header is
+# pure-stdlib; sRGB transfer function (IEC 61966-2-1) and Oklab math (Björn
+# Ottosson reference, dual public domain / MIT) are inlined in src/matcher.cpp
+# with citation comments — no third_party/ entry. See proposal §1.5 +
+# DECISIONS.md 2026-06-20 "Color Matching scope (v0.1)".
+# ---------------------------------------------------------------------------
+add_library(matcher STATIC src/matcher.cpp)
+target_include_directories(matcher PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(matcher PUBLIC palette mesh chunk)
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette matcher)
 
 enable_testing()
 add_subdirectory(tests)
