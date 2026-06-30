@@ -438,3 +438,33 @@ add_test(
 # tests/manual/orchestrate_tier4_world/ before Session 28.
 add_executable(orchestrate_tier4_helper manual/orchestrate_tier4_helper.cpp)
 target_link_libraries(orchestrate_tier4_helper PRIVATE orchestrate)
+
+# ---------------------------------------------------------------------------
+# Session 30 — Cornell Box multi-material Tier-4 implementation (v0.2 work
+# item #1). 2 new ctests + the manual Tier-4 helper. See
+# research/cornell_box_tier4_proposal.md §3.7 + DECISIONS.md 2026-07-03
+# "Cornell Box multi-material Tier-4 scope (v0.2 work item #1)".
+# ---------------------------------------------------------------------------
+set(CORNELL_BOX_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/cornell_box)
+
+add_executable(test_matcher_cornell_box_acceptable_set
+               test_matcher_cornell_box_acceptable_set.cpp)
+target_link_libraries(test_matcher_cornell_box_acceptable_set
+                      PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_cornell_box_acceptable_set
+         COMMAND test_matcher_cornell_box_acceptable_set)
+
+add_executable(test_orchestrate_cornell_box test_orchestrate_cornell_box.cpp)
+target_link_libraries(test_orchestrate_cornell_box PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_cornell_box
+    COMMAND test_orchestrate_cornell_box
+            ${CORNELL_BOX_FIXTURES_DIR}/CornellBox-Original.obj
+)
+
+# Tier-4 artifact generator for Session 31. Build target only; NOT a CTest
+# case (same pattern as orchestrate_tier4_helper + chunkschema_tier4_helper).
+# maintainer regenerates the artifact at tests/manual/cornell_box_tier4_world/
+# before the manual MC verification.
+add_executable(cornell_box_tier4_helper manual/cornell_box_tier4_helper.cpp)
+target_link_libraries(cornell_box_tier4_helper PRIVATE orchestrate)

@@ -1,0 +1,125 @@
+# Cornell Box test fixture — license + provenance
+
+## Project's adopted license
+
+This fixture is distributed under the **Creative Commons Attribution 3.0
+Unported (CC BY 3.0) License** — https://creativecommons.org/licenses/by/3.0/
+
+Attribution chain:
+  - Original physical Cornell Box + matching virtual geometry:
+      Donald Greenberg and students at Cornell University, 1984.
+      http://www.graphics.cornell.edu/online/box/data.html
+  - OBJ + MTL files (CornellBox-Original.obj + CornellBox-Original.mtl):
+      Guedis Cardenas and Morgan McGuire at Williams College, 2011.
+      https://casual-effects.com/data/
+      Historical canonical URL: http://graphics.cs.williams.edu/data
+  - Vendored into objtomc on 2026-07-04 (Session 30; this commit).
+
+## Upstream license claims (verbatim)
+
+The upstream archive at the awesome-3d-meshes mirror
+(https://github.com/jvm-graphics-labs/awesome-3d-meshes/blob/master/McGuire/Cornell%20Box/CornellBox.zip)
+contains TWO contradictory license statements. Both are reproduced
+verbatim below.
+
+### Claim 1: collection-level copyright.txt (inside CornellBox.zip)
+
+The following is the verbatim content of `copyright.txt` from inside
+the zip archive distributed by Morgan McGuire's Computer Graphics
+Archive. It applies to the COLLECTION of 8 OBJ files:
+
+    # A set of eight Cornell Boxes in OBJ format.
+    # Note that the real box is not a perfect cube, so
+    # the faces are imperfect in this data set.
+    #
+    # Created by Guedis Cardenas and Morgan McGuire at Williams College, 2011
+    # Attribution 3.0 Unported (CC BY 3.0) License
+    # http://creativecommons.org/licenses/by/3.0/
+    #
+    # http://graphics.cs.williams.edu/data
+
+### Claim 2: per-file Public Domain header (in CornellBox-Original.obj + .mtl)
+
+The following is the verbatim file-header comment block from both
+CornellBox-Original.obj and CornellBox-Original.mtl. It applies to
+the specific variant (Original) we have vendored:
+
+    # The original Cornell Box in OBJ format.
+    # Note that the real box is not a perfect cube, so
+    # the faces are imperfect in this data set.
+    #
+    # Created by Guedis Cardenas and Morgan McGuire at Williams College, 2011
+    # Released into the Public Domain.
+    #
+    # http://graphics.cs.williams.edu/data
+    # http://www.graphics.cornell.edu/online/box/data.html
+
+### Claim 3: awesome-3d-meshes catalog README
+
+The awesome-3d-meshes mirror's catalog README
+(https://github.com/jvm-graphics-labs/awesome-3d-meshes/blob/master/McGuire/Cornell%20Box/README.md)
+declares:
+
+    License: CC BY 3.0
+    © 2009 Morgan McGuire
+
+## Resolution
+
+The per-file `.obj` and `.mtl` headers say "Released into the Public
+Domain"; the collection `copyright.txt` and the catalog README say
+"CC BY 3.0". This is a real discrepancy that we have resolved
+conservatively in favor of the stricter CC BY 3.0 reading.
+
+Rationale (per `research/cornell_box_tier4_proposal.md` §1.5 +
+`DECISIONS.md` 2026-07-03 "Cornell Box multi-material Tier-4 scope
+(v0.2 work item #1)"):
+
+  1. Honoring attribution satisfies BOTH readings — Public Domain
+     doesn't forbid attribution; CC BY 3.0 requires it. The strict
+     reading subsumes the permissive reading.
+  2. Attribution is good practice regardless. The Williams College
+     Cornell Box variants are the de-facto standard test scene in
+     computer graphics; ignoring the attribution requirement to
+     claim Public Domain would be both legally aggressive and
+     socially uncollegial toward Morgan McGuire and Guedis Cardenas.
+  3. Matches the project's established vendoring pattern
+     (DECISIONS.md 2026-06-18 "Vendoring pattern for third-party
+     C++ deps" + DECISIONS.md 2026-06-18 "Stanford bunny test fixture
+     provenance"): each vendored upstream gets a LICENSE record with
+     verbatim upstream-license text + attribution + re-derivation
+     provenance.
+
+Anyone redistributing these files (in source or compiled form) must
+preserve the CC BY 3.0 attribution. The full CC BY 3.0 license text
+is at https://creativecommons.org/licenses/by/3.0/legalcode.
+
+## Vendored file inventory
+
+The following files are vendored verbatim from the upstream
+CornellBox.zip (SHA-256 `cf5eb590c80a05cec32f7c7937f5000249fbae492eedbbe6bbaeb15332516619`,
+fetched 2026-07-03 from
+https://github.com/jvm-graphics-labs/awesome-3d-meshes/blob/master/McGuire/Cornell%20Box/CornellBox.zip):
+
+| File | Size | SHA-256 |
+|---|---|---|
+| `CornellBox-Original.obj` | 2897 B | `6e2b8b91590e54005fba03b1847c626ee4d9fd85f754045780e6c0001ada4188` |
+| `CornellBox-Original.mtl` | 1443 B | `1f687df1ba44bae18097242528fe39f36f1ff9f4e4b2a5c10bf36e08837bb857` |
+
+NO upstream file modification. Both are byte-identical to what is
+in the upstream zip.
+
+## Re-fetching
+
+To re-fetch and verify SHAs match this record:
+
+    curl -fsSL --max-time 30 -o /tmp/CornellBox.zip \
+        "https://raw.githubusercontent.com/jvm-graphics-labs/awesome-3d-meshes/master/McGuire/Cornell%20Box/CornellBox.zip"
+    sha256sum /tmp/CornellBox.zip  # expect cf5eb590...
+    unzip /tmp/CornellBox.zip CornellBox-Original.obj CornellBox-Original.mtl -d /tmp/
+    sha256sum /tmp/CornellBox-Original.obj   # expect 6e2b8b91...
+    sha256sum /tmp/CornellBox-Original.mtl   # expect 1f687df1...
+
+If any SHA differs, the upstream has been updated since 2026-07-03
+and the project must re-validate. The expectation per upstream
+stability is that these files have been stable since 2012-01-17
+(the OBJ's mtime in the upstream zip).

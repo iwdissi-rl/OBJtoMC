@@ -111,6 +111,18 @@ palette_cache/
 !tests/manual/orchestrate_tier4_world/region/
 !tests/manual/orchestrate_tier4_world/region/*.mca
 
+# Force-include the Session 30 Cornell Box multi-material Tier-4 artifact
+# (same byte-deterministic-via-now_unix_s=0 pattern as the bunny artifact;
+# closes the matcher emissive-branch end-to-end coverage gap left by the
+# v0.1 Tier-4). maintainer copies this into ~/.minecraft/saves/ for the
+# Session 31 Tier-4 manual verification. See research/cornell_box_tier4_
+# proposal.md §3.8 + DECISIONS.md 2026-07-03 "Cornell Box multi-material
+# Tier-4 scope (v0.2 work item #1)".
+!tests/manual/cornell_box_tier4_world/
+!tests/manual/cornell_box_tier4_world/level.dat
+!tests/manual/cornell_box_tier4_world/region/
+!tests/manual/cornell_box_tier4_world/region/*.mca
+
 # Force-include the mesh-layer test fixtures (.obj files under
 # tests/fixtures/mesh/ — hand-cube, two-material MTL, malformed input,
 # Stanford bunny per proposal §5.10 + DECISIONS.md 2026-06-18 "Stanford
@@ -118,6 +130,13 @@ palette_cache/
 # artefacts block above is for compiler-emitted Windows object files,
 # not Wavefront geometry; carve out the fixtures directory explicitly.
 !tests/fixtures/mesh/*.obj
+
+# Force-include the Cornell Box test fixture (Morgan McGuire's
+# CornellBox-Original.obj + .mtl + LICENSE per Session 30 / DECISIONS.md
+# 2026-07-03 "Cornell Box multi-material Tier-4 scope (v0.2 work item #1)").
+# The `*.obj` rule above is for compiler-emitted Windows object files,
+# not Wavefront geometry; carve out the fixtures directory explicitly.
+!tests/fixtures/cornell_box/*.obj
 
 voxels/
 *.bin
