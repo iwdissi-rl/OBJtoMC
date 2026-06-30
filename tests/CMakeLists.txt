@@ -333,3 +333,48 @@ add_test(NAME matcher_batch_consistency COMMAND test_matcher_batch_consistency)
 add_executable(test_matcher_errors test_matcher_errors.cpp)
 target_link_libraries(test_matcher_errors PRIVATE matcher palette mesh chunk)
 add_test(NAME matcher_errors COMMAND test_matcher_errors)
+
+# ---------------------------------------------------------------------------
+# Session 24 — Voxelisation layer tests (research/voxel_proposal.md §3.12).
+# Seven C++ unit tests covering: unit-cube smoke (a), Stanford bunny (b),
+# multi-material disambiguate (c), axis convention Z-up (d), determinism (e),
+# oversize error (f), general errors (g). No Python oracle — voxelisation
+# produces a 3D int32 array; the cuda_voxelizer empirical-reference baseline
+# named in DECISIONS.md 2026-06-29 is for cross-check at implementation time,
+# not vendored. No Tier-4-style external verification (in-memory algorithm
+# code, not a format layer).
+# ---------------------------------------------------------------------------
+add_executable(test_voxel_unit_cube_smoke test_voxel_unit_cube_smoke.cpp)
+target_link_libraries(test_voxel_unit_cube_smoke PRIVATE voxel mesh)
+add_test(NAME voxel_unit_cube_smoke COMMAND test_voxel_unit_cube_smoke)
+
+add_executable(test_voxel_stanford_bunny test_voxel_stanford_bunny.cpp)
+target_link_libraries(test_voxel_stanford_bunny PRIVATE voxel mesh)
+add_test(
+    NAME voxel_stanford_bunny
+    COMMAND test_voxel_stanford_bunny ${MESH_FIXTURES_DIR}/bunny.obj
+)
+
+add_executable(test_voxel_multi_material_disambiguate
+               test_voxel_multi_material_disambiguate.cpp)
+target_link_libraries(test_voxel_multi_material_disambiguate PRIVATE voxel mesh)
+add_test(NAME voxel_multi_material_disambiguate
+         COMMAND test_voxel_multi_material_disambiguate)
+
+add_executable(test_voxel_axis_convention_zup
+               test_voxel_axis_convention_zup.cpp)
+target_link_libraries(test_voxel_axis_convention_zup PRIVATE voxel mesh)
+add_test(NAME voxel_axis_convention_zup
+         COMMAND test_voxel_axis_convention_zup)
+
+add_executable(test_voxel_determinism test_voxel_determinism.cpp)
+target_link_libraries(test_voxel_determinism PRIVATE voxel mesh)
+add_test(NAME voxel_determinism COMMAND test_voxel_determinism)
+
+add_executable(test_voxel_oversize_error test_voxel_oversize_error.cpp)
+target_link_libraries(test_voxel_oversize_error PRIVATE voxel mesh)
+add_test(NAME voxel_oversize_error COMMAND test_voxel_oversize_error)
+
+add_executable(test_voxel_errors test_voxel_errors.cpp)
+target_link_libraries(test_voxel_errors PRIVATE voxel mesh)
+add_test(NAME voxel_errors COMMAND test_voxel_errors)

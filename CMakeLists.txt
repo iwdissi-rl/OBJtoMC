@@ -83,8 +83,21 @@ add_library(matcher STATIC src/matcher.cpp)
 target_include_directories(matcher PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(matcher PUBLIC palette mesh chunk)
 
+# ---------------------------------------------------------------------------
+# voxel — Voxelisation layer. Consumes a mesh::Mesh and produces a dense
+# VoxelGrid (int32 cells, EMPTY = -1 sentinel) per the Schwarz-Seidel 2010
+# §3 conservative surface algorithm. Akenine-Möller 2001 SAT triangle-AABB
+# overlap test + Eberly 1999 closest-point-on-triangle for the §3.5
+# closest-to-voxel-centre disambiguation rule — all inlined in src/voxel.cpp
+# with citation comments; no third_party/ entry. See research/voxel_proposal.md
+# §1.5 + DECISIONS.md 2026-06-29 "Voxelisation scope (v0.1)".
+# ---------------------------------------------------------------------------
+add_library(voxel STATIC src/voxel.cpp)
+target_include_directories(voxel PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(voxel PUBLIC mesh)
+
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette matcher)
+target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette matcher voxel)
 
 enable_testing()
 add_subdirectory(tests)
