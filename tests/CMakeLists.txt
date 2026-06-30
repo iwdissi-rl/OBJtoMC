@@ -378,3 +378,63 @@ add_test(NAME voxel_oversize_error COMMAND test_voxel_oversize_error)
 add_executable(test_voxel_errors test_voxel_errors.cpp)
 target_link_libraries(test_voxel_errors PRIVATE voxel mesh)
 add_test(NAME voxel_errors COMMAND test_voxel_errors)
+
+# ---------------------------------------------------------------------------
+# Session 26 — Orchestration layer tests (research/orchestration_proposal.md
+# §3.13). Seven C++ unit tests covering: unit-cube smoke (a), Stanford bunny
+# (b), level.dat Python oracle (c), region-count prediction (d), determinism
+# (e), CLI error-code mapping (f), plus the Tier-4 helper (g) which is built
+# but NOT a CTest case — it's a manual artifact generator the maintainer runs
+# before Session 28's Tier-4 vanilla-MC verification.
+# ---------------------------------------------------------------------------
+add_executable(test_orchestrate_unit_cube_smoke test_orchestrate_unit_cube_smoke.cpp)
+target_link_libraries(test_orchestrate_unit_cube_smoke PRIVATE orchestrate)
+add_test(NAME orchestrate_unit_cube_smoke COMMAND test_orchestrate_unit_cube_smoke)
+
+add_executable(test_orchestrate_stanford_bunny test_orchestrate_stanford_bunny.cpp)
+target_link_libraries(test_orchestrate_stanford_bunny PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_stanford_bunny
+    COMMAND test_orchestrate_stanford_bunny ${MESH_FIXTURES_DIR}/bunny.obj
+)
+
+# C++ writer side of the level.dat Python oracle: emits a level.dat with
+# deterministic LastPlayed=0 at a path passed via PATH_TO_LEVELDAT env var.
+add_executable(test_orchestrate_level_dat_writer test_orchestrate_level_dat_writer.cpp)
+target_link_libraries(test_orchestrate_level_dat_writer PRIVATE orchestrate)
+
+# The oracle: Python script that drives the writer + asserts every field
+# per orchestration_proposal §3.5 + §3.5 implementation-time-verification
+# additions (Border tuning, WanderingTrader*, DragonFight, etc.).
+add_test(
+    NAME orchestrate_level_dat_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_orchestrate_level_dat_writer>
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_orchestrate_level_dat_oracle.py
+)
+set_tests_properties(orchestrate_level_dat_oracle PROPERTIES LABELS "oracle")
+
+add_executable(test_orchestrate_region_count test_orchestrate_region_count.cpp)
+target_link_libraries(test_orchestrate_region_count PRIVATE orchestrate)
+add_test(NAME orchestrate_region_count COMMAND test_orchestrate_region_count)
+
+add_executable(test_orchestrate_determinism test_orchestrate_determinism.cpp)
+target_link_libraries(test_orchestrate_determinism PRIVATE orchestrate)
+add_test(NAME orchestrate_determinism COMMAND test_orchestrate_determinism)
+
+add_executable(test_orchestrate_cli_errors test_orchestrate_cli_errors.cpp)
+target_link_libraries(test_orchestrate_cli_errors PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_cli_errors
+    COMMAND test_orchestrate_cli_errors
+            $<TARGET_FILE:objtomc>
+            ${MESH_FIXTURES_DIR}/cube.obj
+)
+
+# Tier-4 artifact generator. Build target only; NOT a CTest case — see
+# DECISIONS.md 2026-07-01 "Orchestration scope (v0.1)" + proposal §3.13(g).
+# maintainer runs this manually to (re)generate
+# tests/manual/orchestrate_tier4_world/ before Session 28.
+add_executable(orchestrate_tier4_helper manual/orchestrate_tier4_helper.cpp)
+target_link_libraries(orchestrate_tier4_helper PRIVATE orchestrate)

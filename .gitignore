@@ -100,6 +100,17 @@ palette_cache/
 # carve-out as the fixture above.
 !tests/manual/*.mca
 
+# Force-include the Session 26 orchestration Tier-4 artifact (a complete
+# vanilla-MC-1.21.5-loadable world directory; bunny voxelised end-to-end
+# with deterministic now_unix_s=0 so the artifact is byte-stable across
+# runs). maintainer copies this into ~/.minecraft/saves/ for the Session 28
+# Tier-4 manual verification. See research/orchestration_proposal.md
+# §3.13(g) + DECISIONS.md 2026-07-01 "Orchestration scope (v0.1)".
+!tests/manual/orchestrate_tier4_world/
+!tests/manual/orchestrate_tier4_world/level.dat
+!tests/manual/orchestrate_tier4_world/region/
+!tests/manual/orchestrate_tier4_world/region/*.mca
+
 # Force-include the mesh-layer test fixtures (.obj files under
 # tests/fixtures/mesh/ — hand-cube, two-material MTL, malformed input,
 # Stanford bunny per proposal §5.10 + DECISIONS.md 2026-06-18 "Stanford

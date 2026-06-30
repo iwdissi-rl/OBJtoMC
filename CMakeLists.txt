@@ -96,8 +96,27 @@ add_library(voxel STATIC src/voxel.cpp)
 target_include_directories(voxel PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(voxel PUBLIC mesh)
 
+# ---------------------------------------------------------------------------
+# orchestrate — Orchestration layer. Ties OBJ Loading → Voxelisation →
+# Color Matching → Chunk Schema → Region File Writing → level.dat into a
+# single C++ entry point. In-tree level.dat writer using Session 8's
+# nbt::Writer + a zlib deflateInit2(..., 15+16, ...) gzip wrapper for the
+# MC level.dat format. No new third_party/ entry; cxxopts + CLI11 both
+# audited 2026-07-01 and rejected on code-size grounds (DECISIONS.md
+# 2026-07-01 "Orchestration scope (v0.1)").
+# ---------------------------------------------------------------------------
+add_library(orchestrate STATIC src/orchestrate.cpp)
+target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(orchestrate
+    PUBLIC  nbt anvil chunk mesh palette matcher voxel
+    PRIVATE ZLIB::ZLIB)
+
+# ---------------------------------------------------------------------------
+# objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);
+# no cxxopts/CLI11 vendoring.
+# ---------------------------------------------------------------------------
 add_executable(objtomc src/main.cpp)
-target_link_libraries(objtomc PRIVATE ZLIB::ZLIB nbt anvil chunk mesh palette matcher voxel)
+target_link_libraries(objtomc PRIVATE orchestrate)
 
 enable_testing()
 add_subdirectory(tests)
