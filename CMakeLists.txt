@@ -16,6 +16,76 @@ endif()
 find_package(ZLIB REQUIRED)
 
 # ---------------------------------------------------------------------------
+# WITH_CUDA — optional GPU acceleration (v0.2 work item #3, Session 39+).
+#
+# Three-state STRING cache variable: ON / OFF / AUTO (default AUTO).
+# CMake's native option() is boolean-only, so we use the STRING-cache-var
+# idiom + STRINGS property (approved Session 39 as reconciliation vs proposal
+# §3.1's technically-invalid option(... AUTO) syntax; see DECISIONS.md
+# 2026-07-04 "GPU port scope (v0.2 work item #3)" Session 39 SHA-pin
+# annotation).
+#
+#   AUTO — find_package(CUDAToolkit QUIET); enable if found, disable otherwise
+#   ON   — find_package(CUDAToolkit REQUIRED); fail loud on missing NVCC
+#   OFF  — skip CUDA setup entirely; identical build to today's baseline
+#
+# WITH_CUDA_ENABLED is the effective boolean set from WITH_CUDA + detection
+# outcome. It gates every CUDA-related add_library / target_link_libraries
+# below.
+#
+# When WITH_CUDA_ENABLED, we declare cuda_voxelizer_vendor as an INTERFACE
+# library (matches the tinyobjloader precedent above; SYSTEM-include so the
+# project's -Wall -Wextra -Wpedantic -Wconversion doesn't fire on vendored
+# code). Session 39 does NOT compile voxelize.cu — its transitive header
+# chain (voxelize.cuh -> util_cuda.h + libs/cuda/helper_math.h; util.h ->
+# TriMesh.h) requires shim symbols documented in
+# research/gpu_port_proposal.md §3.10 open risk item 6. The shims land in
+# Session 40's src/voxel_gpu.cu adapter, alongside voxelize.cu-as-a-source.
+# See third_party/cuda_voxelizer/{LICENSE,VERSION.txt} for provenance.
+# ---------------------------------------------------------------------------
+set(WITH_CUDA "AUTO" CACHE STRING
+    "CUDA GPU acceleration: ON (require) / OFF (disable) / AUTO (detect)")
+set_property(CACHE WITH_CUDA PROPERTY STRINGS ON OFF AUTO)
+
+if(NOT WITH_CUDA MATCHES "^(ON|OFF|AUTO)$")
+    message(FATAL_ERROR
+        "WITH_CUDA must be ON, OFF, or AUTO (got \"${WITH_CUDA}\")")
+endif()
+
+set(WITH_CUDA_ENABLED OFF)
+if(WITH_CUDA STREQUAL "ON")
+    find_package(CUDAToolkit REQUIRED)
+    set(WITH_CUDA_ENABLED ON)
+elseif(WITH_CUDA STREQUAL "AUTO")
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        set(WITH_CUDA_ENABLED ON)
+    endif()
+endif()
+
+if(WITH_CUDA_ENABLED)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    # Volta (SM_70) minimum per proposal §3.1; Ampere (SM_80) and Ada (SM_89)
+    # explicit; SM_90+ hosts PTX-JIT upward from SM_89 at runtime.
+    set(CMAKE_CUDA_ARCHITECTURES "70;80;89")
+
+    add_library(cuda_voxelizer_vendor INTERFACE)
+    target_include_directories(cuda_voxelizer_vendor SYSTEM
+        INTERFACE ${CMAKE_SOURCE_DIR}/third_party/cuda_voxelizer)
+    target_link_libraries(cuda_voxelizer_vendor INTERFACE CUDA::cudart)
+
+    message(STATUS
+        "objtomc: WITH_CUDA=${WITH_CUDA}, effective=${WITH_CUDA_ENABLED}, "
+        "CUDA toolkit version=${CUDAToolkit_VERSION}")
+else()
+    message(STATUS
+        "objtomc: WITH_CUDA=${WITH_CUDA}, effective=${WITH_CUDA_ENABLED} "
+        "(GPU acceleration disabled; build proceeds CPU-only)")
+endif()
+
+# ---------------------------------------------------------------------------
 # third_party/tinyobjloader/ — vendored single-header OBJ/MTL parser (MIT).
 # Vendoring contract: third_party/README.md. Pin + provenance:
 # third_party/tinyobjloader/VERSION.txt.

@@ -1,0 +1,96 @@
+# cuda_voxelizer — license + provenance
+
+## Project's adopted license
+
+This vendored subset is distributed under the **MIT License** as declared
+by upstream (Forceflow/cuda_voxelizer). SPDX-License-Identifier: MIT.
+
+Attribution:
+  - Original author: Jeroen Baert (Copyright (c) 2019).
+  - Upstream repository:
+      https://github.com/Forceflow/cuda_voxelizer
+  - Vendored into objtomc on 2026-07-04 (Session 39; this commit)
+    at pinned SHA `f9fc9a936e3f3bb50fc001de638b36b94a87b5ca`
+    (main-branch HEAD 2026-06-16 22:28:52Z; committer Jeroen Baert;
+    commit message "Removing build badge").
+  - Audit trail: Session 23 library audit (research/voxel_proposal.md
+    §1.5(a)) + Session 38 SHA + LICENSE refresh (research/gpu_port_proposal.md
+    §1.5(a)).
+
+## Upstream LICENSE reproduced verbatim
+
+The following block reproduces the upstream `LICENSE` file at the pinned
+SHA above, byte-for-byte (SHA-256 `a5a9e693ff99c8ad0cae7ca222e93f4255268d4895996ca6d62ced8e8946dde2`,
+1090 bytes). No modifications.
+
+----- BEGIN VERBATIM upstream LICENSE -----
+
+MIT License
+
+Copyright (c) 2019 Jeroen Baert
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----- END VERBATIM upstream LICENSE -----
+
+Anyone redistributing these files (in source or compiled form) must
+preserve the above copyright notice and permission notice per the MIT
+terms. The canonical MIT text is also at https://opensource.org/licenses/MIT.
+
+## Vendored file inventory
+
+The following upstream files are vendored verbatim under this directory.
+See `VERSION.txt` for the full provenance record.
+
+| File | Upstream path | Size | SHA-256 |
+|---|---|---|---|
+| `voxelize.cu` | `src/voxelize.cu` | 10921 B | `9acf0463d6d4ee0eb89a3bd70fd9d5c48c68b0930537315e5fa809a6cfe86bd7` |
+| `voxelize.cuh` | `src/voxelize.cuh` | 958 B | `8cf320665a3e4d018c2b7dc1ed2df3bc55bd3adb5d12da49b32746ee20163172` |
+| `morton_LUTs.h` | `src/morton_LUTs.h` | 9569 B | `87088dbcf176508b4816affca3b0bd7d2e5f9c1a611dbfc167b8938b1de62154` |
+| `util.h` | `src/util.h` | 6172 B | `4b2525a882e12f0595e7d6d561af22d3c8009cfb523d6694de301dbd77b50980` |
+| `LICENSE` (this file's verbatim block above) | `LICENSE` | 1090 B | `a5a9e693ff99c8ad0cae7ca222e93f4255268d4895996ca6d62ced8e8946dde2` |
+
+NO upstream file modification. All 5 upstream files are byte-identical
+to the pinned commit; Session 39 verified byte-stability across two
+independent fetches. Files intentionally NOT vendored (main.cpp,
+util_io.cpp/h, timer.h, todo.txt, cpu_voxelizer.cpp/h, voxelize_solid.cu,
+util_cuda.cpp/h, libs/) are enumerated in `VERSION.txt` with rationale
+per `research/gpu_port_proposal.md` §3.2.
+
+## Re-fetching
+
+To re-fetch and verify the SHA-256 values match this record:
+
+    SHA=f9fc9a936e3f3bb50fc001de638b36b94a87b5ca
+    BASE=https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/$SHA
+    for f in src/voxelize.cu src/voxelize.cuh src/morton_LUTs.h src/util.h LICENSE; do
+        curl -fsSL --max-time 30 "$BASE/$f" | sha256sum
+    done
+
+Expected output (order matches the loop; compare against the table above):
+
+    9acf0463d6d4ee0eb89a3bd70fd9d5c48c68b0930537315e5fa809a6cfe86bd7  -   (voxelize.cu)
+    8cf320665a3e4d018c2b7dc1ed2df3bc55bd3adb5d12da49b32746ee20163172  -   (voxelize.cuh)
+    87088dbcf176508b4816affca3b0bd7d2e5f9c1a611dbfc167b8938b1de62154  -   (morton_LUTs.h)
+    4b2525a882e12f0595e7d6d561af22d3c8009cfb523d6694de301dbd77b50980  -   (util.h)
+    a5a9e693ff99c8ad0cae7ca222e93f4255268d4895996ca6d62ced8e8946dde2  -   (LICENSE)
+
+If any SHA differs, upstream has been updated since 2026-07-04 and the
+project must re-validate the SHA-pin per `research/gpu_port_proposal.md`
+§1.5(a) audit discipline.

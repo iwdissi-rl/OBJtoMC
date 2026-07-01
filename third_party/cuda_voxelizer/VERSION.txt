@@ -1,0 +1,101 @@
+upstream:        https://github.com/Forceflow/cuda_voxelizer
+license:         MIT
+license-spdx:    MIT
+git-sha:         f9fc9a936e3f3bb50fc001de638b36b94a87b5ca
+git-ref:         main   (branch HEAD 2026-06-16 22:28:52Z; committer Jeroen Baert;
+                        commit message "Removing build badge")
+acquired:        2026-07-04
+acquired-by:     Session 39 (vendoring + WITH_CUDA CMake integration)
+audited-by:      Session 23 (research/voxel_proposal.md §1.5(a) library audit)
+                 Session 38 (research/gpu_port_proposal.md §1.5(a) SHA + LICENSE refresh)
+
+Vendored files
+--------------
+
+source-url:      https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/f9fc9a936e3f3bb50fc001de638b36b94a87b5ca/src/voxelize.cu
+file-path:       voxelize.cu
+file-sha256:     9acf0463d6d4ee0eb89a3bd70fd9d5c48c68b0930537315e5fa809a6cfe86bd7
+file-size:       10921 bytes  (238 lines; Schwarz-Seidel §3 surface kernel +
+                               Akenine-Möller SAT overlap + atomic-OR bitmap set)
+
+source-url:      https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/f9fc9a936e3f3bb50fc001de638b36b94a87b5ca/src/voxelize.cuh
+file-path:       voxelize.cuh
+file-sha256:     8cf320665a3e4d018c2b7dc1ed2df3bc55bd3adb5d12da49b32746ee20163172
+file-size:       958 bytes  (device-function header declarations for voxelize.cu)
+
+source-url:      https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/f9fc9a936e3f3bb50fc001de638b36b94a87b5ca/src/morton_LUTs.h
+file-path:       morton_LUTs.h
+file-sha256:     87088dbcf176508b4816affca3b0bd7d2e5f9c1a611dbfc167b8938b1de62154
+file-size:       9569 bytes  (Morton-order lookup tables for the occupancy bitmap)
+
+source-url:      https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/f9fc9a936e3f3bb50fc001de638b36b94a87b5ca/src/util.h
+file-path:       util.h
+file-sha256:     4b2525a882e12f0595e7d6d561af22d3c8009cfb523d6694de301dbd77b50980
+file-size:       6172 bytes  (device geometry helpers: Triangle, AABox)
+
+source-url:      https://raw.githubusercontent.com/Forceflow/cuda_voxelizer/f9fc9a936e3f3bb50fc001de638b36b94a87b5ca/LICENSE
+file-path:       LICENSE
+file-sha256:     a5a9e693ff99c8ad0cae7ca222e93f4255268d4895996ca6d62ced8e8946dde2
+file-size:       1090 bytes  (verbatim MIT text; Copyright (c) 2019 Jeroen Baert;
+                              upstream unchanged since 2019 per copyright year)
+
+Files intentionally NOT vendored (per research/gpu_port_proposal.md §3.2)
+------------------------------------------------------------------------
+
+upstream-src-path                            reason-not-vendored
+src/main.cpp                                 upstream CLI entry point; we call
+                                             the kernel directly, not via its CLI
+src/util_io.cpp + src/util_io.h              OBJ/STL/PLY reading + .vox/.binvox
+                                             writing; we have mesh::Mesh +
+                                             chunk::ChunkBuilder
+src/timer.h                                  trivially replaceable with std::chrono
+src/todo.txt                                 upstream maintainer notes; irrelevant
+src/cpu_voxelizer.cpp + src/cpu_voxelizer.h  CPU fallback; we have Session 24's
+                                             698-LOC CPU implementation
+src/voxelize_solid.cu                        solid voxelisation deferred beyond
+                                             v0.2 #3 scope (surface-only lock)
+src/util_cuda.cpp + src/util_cuda.h          CUDA error-check helpers; if any
+                                             transitively required by voxelize.cu
+                                             (empirically confirmed at Session 39:
+                                             voxelize.cuh #include chain requires
+                                             util_cuda.h + libs/cuda/helper_math.h
+                                             + libs/trimesh2/TriMesh.h), the
+                                             required subset will be provided as
+                                             an in-tree adapter shim in
+                                             src/voxel_gpu.cu at Session 40 per
+                                             proposal §3.10 open risk item 6
+                                             mitigation, NOT vendored here.
+src/libs/ (Trimesh2 submodule)               discarded; we use mesh::Mesh
+
+notes:           Per the vendoring pattern (DECISIONS.md 2026-06-18,
+                 third_party/README.md, third_party/tinyobjloader/VERSION.txt +
+                 third_party/minecraft-data/VERSION.txt precedents): the git-sha
+                 above is the load-bearing record; git-ref is informational.
+                 The file-sha256 values let a future reader fetch the upstream
+                 commit and byte-diff against the vendored files.
+
+                 Vendored read-only. NO modifications to any of the 5 upstream
+                 files. Session 39 confirmed byte-identical across two
+                 independent fetches. Customisation lives in Session 40's
+                 src/voxel_gpu.cu adapter shim, NOT in the vendored files.
+
+                 Session 39 build-system disposition: voxelize.cu has a
+                 transitive header dependency chain (voxelize.cuh -> util_cuda.h,
+                 libs/cuda/helper_math.h; util.h -> TriMesh.h) whose 3 leaf
+                 headers are all on the "NOT vendored" list above. Empirically
+                 verified with nvcc 13.0 at Session 39 fetch:
+
+                     $ nvcc -std=c++17 -arch=sm_89 -c voxelize.cu
+                     util.h:5:10: fatal error: TriMesh.h: No such file
+                                                or directory
+
+                 This surfaces exactly the open risk documented in
+                 research/gpu_port_proposal.md §3.10 item 6 + DECISIONS.md
+                 2026-07-04 "GPU port scope" open risks item 6. Mitigation
+                 (per proposal §3.10 + Session 39 maintainer decision):
+                 cuda_voxelizer_vendor is declared as a CMake INTERFACE library
+                 marking the SYSTEM-include vendored directory (matches
+                 tinyobjloader precedent), NOT compiled as a STATIC target at
+                 Session 39. Session 40's src/voxel_gpu.cu adapter will add
+                 voxelize.cu as a source and provide the shim symbols for
+                 the missing headers.
