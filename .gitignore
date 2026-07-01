@@ -154,5 +154,22 @@ palette_cache/
 !tests/manual/transparent_tier4_world/region/
 !tests/manual/transparent_tier4_world/region/*.mca
 
+# Force-include the vendored Crytek Sponza fixture (sponza.obj + sponza.mtl
+# + copyright.txt + LICENSE per Session 36 / DECISIONS.md 2026-07-04
+# "Scale Tier-4 scope (v0.2 work item #2)"). Same `*.obj` carveout
+# rationale as the Cornell Box + transparent entries above.
+!tests/fixtures/sponza/*.obj
+
+# Force-include the Session 36 Sponza scale Tier-4 artifact
+# (byte-deterministic via now_unix_s=0; 4 region files spanning
+# positive + negative chunk coordinates; maintainer copies this into
+# ~/.minecraft/saves/ for the Session 37 Tier-4 manual verification).
+# See research/scale_tier4_proposal.md §3.11 + DECISIONS.md 2026-07-04
+# "Scale Tier-4 scope (v0.2 work item #2)".
+!tests/manual/sponza_scale_tier4_world/
+!tests/manual/sponza_scale_tier4_world/level.dat
+!tests/manual/sponza_scale_tier4_world/region/
+!tests/manual/sponza_scale_tier4_world/region/*.mca
+
 voxels/
 *.bin

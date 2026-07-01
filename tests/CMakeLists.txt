@@ -500,3 +500,33 @@ add_test(
 # before the manual MC verification.
 add_executable(transparent_tier4_helper manual/transparent_tier4_helper.cpp)
 target_link_libraries(transparent_tier4_helper PRIVATE orchestrate)
+
+# ---------------------------------------------------------------------------
+# Session 36 — Sponza scale Tier-4 implementation (v0.2 work item #2).
+# 2 new ctests + the manual Tier-4 helper. Vendored fixture (Crytek Sponza
+# via McGuire archive, CC BY 3.0; sponza.obj + sponza.mtl + copyright.txt +
+# LICENSE at tests/fixtures/sponza/). See research/scale_tier4_proposal.md
+# §3.10 + §3.11 + DECISIONS.md 2026-07-04 "Scale Tier-4 scope (v0.2 work
+# item #2)".
+# ---------------------------------------------------------------------------
+set(SPONZA_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/sponza)
+
+add_executable(test_matcher_sponza_smoke test_matcher_sponza_smoke.cpp)
+target_link_libraries(test_matcher_sponza_smoke
+                      PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_sponza_smoke COMMAND test_matcher_sponza_smoke)
+
+add_executable(test_orchestrate_sponza_scale test_orchestrate_sponza_scale.cpp)
+target_link_libraries(test_orchestrate_sponza_scale PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_sponza_scale
+    COMMAND test_orchestrate_sponza_scale
+            ${SPONZA_FIXTURES_DIR}/sponza.obj
+)
+
+# Tier-4 artifact generator for Session 37. Build target only; NOT a CTest
+# case (same pattern as cornell_box_tier4_helper + transparent_tier4_helper).
+# maintainer regenerates the artifact at tests/manual/sponza_scale_tier4_world/
+# before the manual MC verification.
+add_executable(sponza_scale_tier4_helper manual/sponza_scale_tier4_helper.cpp)
+target_link_libraries(sponza_scale_tier4_helper PRIVATE orchestrate)

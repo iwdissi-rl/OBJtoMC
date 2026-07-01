@@ -1,0 +1,153 @@
+# Crytek Sponza test fixture — license + provenance
+
+## Project's adopted license
+
+This fixture is distributed under the **Creative Commons Attribution 3.0
+Unported (CC BY 3.0) License** — https://creativecommons.org/licenses/by/3.0/
+
+Attribution chain:
+  - Original Sponza model (Dabrovic Sponza):
+      Marko Dabrovic, 2002.
+  - Crytek Sponza remodel (this fixture — the "improved" 2010 version):
+      Frank Meinl, Crytek, August 19, 2010.
+      http://www.crytek.com/cryengine/cryengine3/downloads (historical)
+  - Archive fixes + hosting (bump maps re-computed from normal maps,
+    mask textures merged into diffuse alpha, missing gi_flag.tga created,
+    stray untextured banner removed):
+      Morgan McGuire, July 14, 2011.
+      https://casual-effects.com/g3d/data10/common/model/crytek_sponza/sponza.zip
+  - Vendored into objtomc on 2026-07-04 (Session 36; this commit).
+
+## Upstream license claims (verbatim)
+
+The upstream `sponza.zip` at the McGuire Computer Graphics Archive
+contains TWO claims that must be reconciled. Both are reproduced
+verbatim below.
+
+### Claim 1: archive-level catalog + wider-community attribution
+
+The McGuire Computer Graphics Archive catalog + the wider graphics
+community (e.g. `github.com/yuna0x0/sbox-classic-sponza/LICENSE.md`)
+declare the Crytek Sponza fixture:
+
+    License: CC BY 3.0
+    © 2010 Frank Meinl, Crytek
+
+### Claim 2: `copyright.txt` inside the zip
+
+The following is the verbatim content of `copyright.txt` from inside
+the upstream zip. It is the only license-related text file the
+zip contains:
+
+    July 14, 2011 Morgan McGuire modified the model from Crytek's OBJ
+    export to correct some small errors.  He computed bump maps from the
+    normal maps using <a
+    href="http://cs.williams.edu/~morgan/code/">normal2bump.cpp</a> (since
+    MTL files expect height bumps, not normals), put the "mask" textures
+    into the alpha channel of the associated diffuse texture, cleaned up
+    noise in the masks, created the missing gi_flag.tga texture, and
+    removed the long untextured banner floating in the middle of the
+    atrium that appears in the file but in none of the published images of
+    the model.  The banner is in banner.obj.
+
+
+
+    http://www.crytek.com/cryengine/cryengine3/downloads
+
+
+    Sponza Model
+    August 19, 2010
+    The Atrium Sponza Palace, Dubrovnik, is an elegant and improved model created by Frank Meinl. The original Sponza model was created by Marko Dabrovic in early 2002. Over the years, the Sponza Atrium scene has become one of the most popular 3D scenes for testing global illumination and radiosity due to it's specific architectural structure which is particularly complex for global illumination light.
+
+    However, nowadays it is considered as a simple model, thus it was decided to crate a new model with highly improved appearance and scene complexity. It is donated to the public for  radiosity and is represented in several different formats (3ds, Obj) for use with various commercial 3D applications and renderers.
+
+
+    Screenshot from the I3D paper
+    http://crytek.com/sites/default/files/20100301_lpv.pdf
+
+## Resolution
+
+The archive catalog + wider-community references declare CC BY 3.0;
+the zip's `copyright.txt` says "donated to the public for radiosity"
+(permissive, but not explicitly CC BY 3.0). This is the same pattern
+as the Cornell Box fixture (`tests/fixtures/cornell_box/LICENSE`),
+and we resolve it identically — conservatively in favor of the stricter
+CC BY 3.0 reading.
+
+Rationale (per `research/scale_tier4_proposal.md` §1.5.3 +
+`DECISIONS.md` 2026-07-04 "Scale Tier-4 scope (v0.2 work item #2)"):
+
+  1. CC BY 3.0 is the stricter of the two readings. "Donated to the
+     public" doesn't forbid attribution; CC BY 3.0 requires it. The
+     strict reading subsumes the permissive reading.
+  2. Attribution is good practice regardless. The Crytek Sponza has
+     been the de-facto architectural test scene in computer graphics
+     research for 15+ years; the wider community treats it as CC BY
+     3.0. Ignoring attribution to claim public-domain status would be
+     legally aggressive and socially uncollegial toward Frank Meinl,
+     Crytek, Marko Dabrovic, and Morgan McGuire.
+  3. Matches the project's established vendoring pattern (Cornell Box
+     + Stanford bunny precedents): each vendored upstream gets a
+     LICENSE record with verbatim upstream-license text +
+     attribution + re-derivation provenance.
+
+Anyone redistributing these files (in source or compiled form) must
+preserve the CC BY 3.0 attribution. The full CC BY 3.0 license text
+is at https://creativecommons.org/licenses/by/3.0/legalcode.
+
+## Vendored file inventory
+
+The following files are vendored verbatim from the upstream
+`sponza.zip` (SHA-256 `da005cbee0be2df2abc8513f3ceb61bcb6f69aac112babcd9c00169a27c2770c`,
+80 113 441 B, fetched 2026-07-04 from
+https://casual-effects.com/g3d/data10/common/model/crytek_sponza/sponza.zip):
+
+| File | Size (bytes) | SHA-256 |
+|---|---|---|
+| `sponza.obj` | 21 109 957 | `dc9d77fa783772e92f47e67ddef8344858fa14e224711b5dd7d39f7db7042493` |
+| `sponza.mtl` | 6 723 | `7e5d765a00bf2af1c0cae1696051fdf04c5bb358cf2bc5cc2634ea8715669d9b` |
+| `copyright.txt` | 1 498 | `59967ef952128e385570c651d966871776c296a6a6a057487690d55ac11b70f6` |
+
+NO upstream file modification. All three files are byte-identical to
+what is in the upstream zip.
+
+## Intentional omissions
+
+The upstream `sponza.zip` also contains **approximately 70 PNG
+textures** under `textures/` totaling ~50 MiB. These are **not
+vendored** because our matcher's `.kd`-only policy (see
+`matcher_proposal §3.4` + `mesh.hpp:Material`) does not consume
+`map_Kd` texture references — the matcher reads the scalar `Kd`
+value directly from the MTL. The consequence for Sponza specifically
+is documented in `research/scale_tier4_proposal.md` §1.6 and §1.8:
+all 25 materials have identical `Kd = (1, 1, 1)`, so the entire mesh
+voxelises to a single block (`minecraft:white_stained_glass`) under
+the current matcher. Adding texture-sampling to the matcher is
+deferred to v0.2 work item #4 (matcher quality); see
+`OPEN_QUESTIONS.md` 2026-07-04 "Near-white opaque-branch matcher-
+quality".
+
+The `banner.obj` file mentioned in `copyright.txt` (the "long
+untextured banner floating in the middle of the atrium" that McGuire
+removed and split out into a separate file) is also **not vendored**;
+it is not needed for the scale Tier-4 and is not part of the
+canonical Crytek Sponza mesh under test.
+
+## Re-fetching
+
+To re-fetch and verify SHAs match this record:
+
+    curl -fsSL --max-time 300 -o /tmp/sponza.zip \
+        "https://casual-effects.com/g3d/data10/common/model/crytek_sponza/sponza.zip"
+    sha256sum /tmp/sponza.zip  # expect da005cbe...2770c
+    unzip /tmp/sponza.zip sponza.obj sponza.mtl copyright.txt -d /tmp/
+    sha256sum /tmp/sponza.obj        # expect dc9d77fa...2493
+    sha256sum /tmp/sponza.mtl        # expect 7e5d765a...9d9b
+    sha256sum /tmp/copyright.txt     # expect 59967ef9...b70f6
+
+If any SHA differs, the upstream has been updated since 2026-07-04
+and the project must re-validate. The expectation per upstream
+stability is that these files have been stable since 2011-07-14
+(sponza.obj/copyright.txt mtime in the upstream zip; sponza.mtl mtime
+2019-05-03 reflects a later minor edit that the community treats as
+canonical).
