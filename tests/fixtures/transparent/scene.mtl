@@ -1,0 +1,29 @@
+# objtomc transparent-branch Tier-4 fixture.
+# Hand-written per research/transparent_tier4_proposal.md §1.6.
+# See DECISIONS.md 2026-07-04 "Transparent branch Tier-4 scope
+# (v0.2 work item #1.1)".
+# Fixture license: project-inherited (see OPEN_QUESTIONS.md 2026-06-18
+# "Project license declaration"); no external upstream, no LICENSE file
+# needed.
+#
+# 4 materials: 2 transparent (d=0.3), 2 opaque (default d=1.0).
+# Kd values tuned per research/transparent_tier4_proposal.md §1.7
+# empirical top-1 predictions against data/block_palette_db.csv:
+#   clear_glass  -> minecraft:white_stained_glass  (transparent branch)
+#   red_glass    -> minecraft:red_stained_glass    (transparent branch)
+#   opaque_red   -> minecraft:red_mushroom_block   (opaque branch)
+#   opaque_white -> minecraft:white_concrete_powder (opaque branch)
+
+newmtl clear_glass
+Kd 0.900 0.900 0.900
+d 0.300
+
+newmtl red_glass
+Kd 0.600 0.200 0.200
+d 0.300
+
+newmtl opaque_red
+Kd 0.800 0.100 0.100
+
+newmtl opaque_white
+Kd 0.900 0.900 0.900

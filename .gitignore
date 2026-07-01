@@ -138,5 +138,21 @@ palette_cache/
 # not Wavefront geometry; carve out the fixtures directory explicitly.
 !tests/fixtures/cornell_box/*.obj
 
+# Force-include the hand-written transparent-branch test fixture
+# (scene.obj + scene.mtl per Session 33 / DECISIONS.md 2026-07-04
+# "Transparent branch Tier-4 scope (v0.2 work item #1.1)"). Same
+# `*.obj` carveout rationale as the Cornell Box entry above.
+!tests/fixtures/transparent/*.obj
+
+# Force-include the Session 33 transparent-branch Tier-4 artifact
+# (byte-deterministic via now_unix_s=0; maintainer copies this into
+# ~/.minecraft/saves/ for the Session 34 Tier-4 manual verification).
+# See research/transparent_tier4_proposal.md §3.8 + DECISIONS.md
+# 2026-07-04 "Transparent branch Tier-4 scope (v0.2 work item #1.1)".
+!tests/manual/transparent_tier4_world/
+!tests/manual/transparent_tier4_world/level.dat
+!tests/manual/transparent_tier4_world/region/
+!tests/manual/transparent_tier4_world/region/*.mca
+
 voxels/
 *.bin

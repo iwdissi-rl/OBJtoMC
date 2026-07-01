@@ -468,3 +468,35 @@ add_test(
 # before the manual MC verification.
 add_executable(cornell_box_tier4_helper manual/cornell_box_tier4_helper.cpp)
 target_link_libraries(cornell_box_tier4_helper PRIVATE orchestrate)
+
+# ---------------------------------------------------------------------------
+# Session 33 — Transparent-branch Tier-4 implementation (v0.2 work item #1.1).
+# 2 new ctests + the manual Tier-4 helper. Hand-written fixture (no external
+# provenance) — see research/transparent_tier4_proposal.md §1.5 + §3.7 +
+# DECISIONS.md 2026-07-04 "Transparent branch Tier-4 scope (v0.2 work item
+# #1.1)".
+# ---------------------------------------------------------------------------
+set(TRANSPARENT_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/transparent)
+
+add_executable(test_matcher_transparent_acceptable_set
+               test_matcher_transparent_acceptable_set.cpp)
+target_link_libraries(test_matcher_transparent_acceptable_set
+                      PRIVATE matcher palette mesh chunk)
+add_test(NAME matcher_transparent_acceptable_set
+         COMMAND test_matcher_transparent_acceptable_set)
+
+add_executable(test_orchestrate_transparent_scene
+               test_orchestrate_transparent_scene.cpp)
+target_link_libraries(test_orchestrate_transparent_scene PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_transparent_scene
+    COMMAND test_orchestrate_transparent_scene
+            ${TRANSPARENT_FIXTURES_DIR}/scene.obj
+)
+
+# Tier-4 artifact generator for Session 34. Build target only; NOT a CTest
+# case (same pattern as cornell_box_tier4_helper + orchestrate_tier4_helper).
+# maintainer regenerates the artifact at tests/manual/transparent_tier4_world/
+# before the manual MC verification.
+add_executable(transparent_tier4_helper manual/transparent_tier4_helper.cpp)
+target_link_libraries(transparent_tier4_helper PRIVATE orchestrate)
