@@ -530,3 +530,52 @@ add_test(
 # before the manual MC verification.
 add_executable(sponza_scale_tier4_helper manual/sponza_scale_tier4_helper.cpp)
 target_link_libraries(sponza_scale_tier4_helper PRIVATE orchestrate)
+
+# ---------------------------------------------------------------------------
+# Session 40 — GPU voxelizer correctness gates (v0.2 work item #3, slice 2).
+# Two new ctests, both gated on WITH_CUDA_ENABLED so the CPU-only build path
+# does not attempt to compile them. See research/gpu_port_proposal.md §3.6
+# (byte-equality test infrastructure) + §3.8 (determinism experimental
+# verification) for the contract.
+#
+#   voxel_cpu_gpu_equality — Sponza @ 64^3 + @ 256^3 byte-compared between
+#       prefer_gpu=OFF and prefer_gpu=ON. Load-bearing correctness gate.
+#   voxel_gpu_determinism  — 10x GPU runs @ 64^3, byte-compared against
+#       run 1. Load-bearing determinism gate for the packed-uint64
+#       atomicMin design (§3.8).
+#
+# ASAN_OPTIONS=protect_shadow_gap=0 is set on ALL tests when WITH_CUDA_ENABLED
+# because Debug builds link ASan into every test binary, and ASan's default
+# reservation of the low-64TB shadow-memory gap conflicts with CUDA runtime's
+# own address-space claims — a well-known ASan+CUDA interaction that
+# manifests as spurious "out of memory" on the first cudaMalloc even for
+# tiny allocations. The workaround is documented at NVIDIA compute-sanitizer
+# release notes and needs no ctest source changes.
+# ---------------------------------------------------------------------------
+if(WITH_CUDA_ENABLED)
+    add_executable(test_voxel_cpu_gpu_equality test_voxel_cpu_gpu_equality.cpp)
+    target_link_libraries(test_voxel_cpu_gpu_equality PRIVATE voxel mesh)
+    add_test(
+        NAME voxel_cpu_gpu_equality
+        COMMAND test_voxel_cpu_gpu_equality ${SPONZA_FIXTURES_DIR}/sponza.obj
+    )
+
+    add_executable(test_voxel_gpu_determinism test_voxel_gpu_determinism.cpp)
+    target_link_libraries(test_voxel_gpu_determinism PRIVATE voxel mesh)
+    add_test(
+        NAME voxel_gpu_determinism
+        COMMAND test_voxel_gpu_determinism ${SPONZA_FIXTURES_DIR}/sponza.obj
+    )
+
+    # Apply the ASan+CUDA workaround to every registered ctest in this
+    # directory. Iterating the DIRECTORY property is easier to keep in
+    # sync than listing each test individually. No pre-existing test has
+    # an ENVIRONMENT property (only LABELS), so we overwrite freely.
+    get_property(_objtomc_all_tests DIRECTORY PROPERTY TESTS)
+    if(_objtomc_all_tests)
+        foreach(_t IN LISTS _objtomc_all_tests)
+            set_tests_properties(${_t} PROPERTIES ENVIRONMENT
+                "ASAN_OPTIONS=protect_shadow_gap=0")
+        endforeach()
+    endif()
+endif()

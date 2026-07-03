@@ -65,16 +65,66 @@ endif()
 
 if(WITH_CUDA_ENABLED)
     enable_language(CUDA)
-    set(CMAKE_CUDA_STANDARD 17)
+    # C++20 is required so nvcc can parse std::span, which appears in
+    # objtomc/voxel.hpp's VoxelGrid::materials() public API. Session 38
+    # proposal §3.1 tentatively suggested C++17 "for NVCC compatibility";
+    # Session 40 empirical: nvcc 13.0 handles C++20 well (matches the
+    # top-level CMAKE_CXX_STANDARD 20), and dropping the CUDA path to 17
+    # would require an API-observable retreat from std::span.
+    #
+    # CMake 3.22 (the version pinned by cmake_minimum_required 3.20)
+    # doesn't natively know the CUDA20 dialect — the CUDA_STANDARD 20
+    # value wasn't added until CMake 3.25. We teach CMake how to enable
+    # CUDA20 by setting the compile-option variables manually, then
+    # set(CMAKE_CUDA_STANDARD 20). This produces the same nvcc command
+    # line CMake >= 3.25 would generate.
+    set(CMAKE_CUDA20_STANDARD_COMPILE_OPTION "-std=c++20")
+    set(CMAKE_CUDA20_EXTENSION_COMPILE_OPTION "-std=c++20")
+    set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-    # Volta (SM_70) minimum per proposal §3.1; Ampere (SM_80) and Ada (SM_89)
-    # explicit; SM_90+ hosts PTX-JIT upward from SM_89 at runtime.
-    set(CMAKE_CUDA_ARCHITECTURES "70;80;89")
+    # Turing (SM_75) minimum; Ampere (SM_80) and Ada (SM_89) explicit;
+    # SM_90+ hosts PTX-JIT upward from SM_89 at runtime.
+    #
+    # Session 40 raise-from-70-to-75: proposal §3.1 originally called for
+    # SM_70 (Volta) minimum, but CUDA 13.0 dropped Volta support (nvcc
+    # --list-gpu-arch on the target host reports SM_75 as the floor). The
+    # Volta minimum was an aspirational number in Session 38's proposal;
+    # the target host is 8.9 (RTX 4090 D / Ada Lovelace) and no other
+    # supported GPU tier lands between 7.0 and 7.5. Documented in
+    # DECISIONS.md Session 40 SHA-pin annotation as an empirical raise.
+    set(CMAKE_CUDA_ARCHITECTURES "75;80;89")
 
-    add_library(cuda_voxelizer_vendor INTERFACE)
+    # ---------------------------------------------------------------------
+    # Session 40 conversion: cuda_voxelizer_vendor is now a STATIC library
+    # with voxelize.cu as its source (was INTERFACE in Session 39 while we
+    # resolved the transitive header chain — SESSION_LOG.md Session 39
+    # STOP+resolve record). The shim symbols the header chain needs live
+    # under src/voxel_gpu_shim/ (TriMesh.h stub + util_cuda.h checkCudaErrors
+    # + libs/cuda/helper_math.h operators + dot/cross/normalize/fminf/
+    # fmaxf/clamp), empirically enumerated during Session 40 pre-impl
+    # nvcc test-compile per proposal §3.10 open risk 6 mitigation.
+    #
+    # Vendored voxelize.cu is compiled with -w to suppress its warnings
+    # (upstream code we vendor read-only per the tinyobjloader precedent
+    # in DECISIONS.md 2026-06-18 "Vendoring pattern for third-party C++
+    # deps"). SYSTEM include suppresses HEADER warnings but not warnings
+    # that fire on the vendored .cu source itself (nvcc's cudafe stitching
+    # emits -Wpedantic "style of line directive is a GCC extension" on
+    # every line — a nvcc peculiarity, not our code).
+    # ---------------------------------------------------------------------
+    add_library(cuda_voxelizer_vendor STATIC
+        ${CMAKE_SOURCE_DIR}/third_party/cuda_voxelizer/voxelize.cu)
     target_include_directories(cuda_voxelizer_vendor SYSTEM
-        INTERFACE ${CMAKE_SOURCE_DIR}/third_party/cuda_voxelizer)
-    target_link_libraries(cuda_voxelizer_vendor INTERFACE CUDA::cudart)
+        PUBLIC  ${CMAKE_SOURCE_DIR}/third_party/cuda_voxelizer)
+    target_include_directories(cuda_voxelizer_vendor SYSTEM
+        PRIVATE ${CMAKE_SOURCE_DIR}/src/voxel_gpu_shim)
+    target_link_libraries(cuda_voxelizer_vendor PUBLIC CUDA::cudart)
+    # Vendored file must compile clean per the "no source edits to vendored
+    # code" discipline. Silence all host-side warnings on the vendored TU
+    # only; our own .cu files still enforce -Wall -Wextra -Wpedantic
+    # -Wconversion (see the voxel target below).
+    target_compile_options(cuda_voxelizer_vendor PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-w>)
 
     message(STATUS
         "objtomc: WITH_CUDA=${WITH_CUDA}, effective=${WITH_CUDA_ENABLED}, "
@@ -164,7 +214,44 @@ target_link_libraries(matcher PUBLIC palette mesh chunk)
 # ---------------------------------------------------------------------------
 add_library(voxel STATIC src/voxel.cpp)
 target_include_directories(voxel PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(voxel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(voxel PUBLIC mesh)
+
+# ---------------------------------------------------------------------------
+# GPU voxelizer path — Session 40 (v0.2 work item #3, implementation slice 2).
+#
+# When WITH_CUDA_ENABLED, add src/voxel_gpu.cu as an additional source to
+# the voxel library and link the vendored cuda_voxelizer_vendor + CUDA
+# runtime. OBJTOMC_WITH_CUDA is defined PUBLIC on the voxel library so
+# transitively-consuming targets (matcher, orchestrate, tests, objtomc CLI)
+# see the GPU-guarded fields on VoxelizerOptions when they include
+# objtomc/voxel.hpp.
+#
+# The shim include path (src/voxel_gpu_shim/) is added SYSTEM so shim
+# warnings don't fire under our -Wall -Wextra -Wpedantic -Wconversion
+# posture. Our own src/voxel_gpu.cu compiles under strict flags — see
+# target_compile_options below (nvcc forwards to host via -Xcompiler=...).
+# ---------------------------------------------------------------------------
+if(WITH_CUDA_ENABLED)
+    target_sources(voxel PRIVATE src/voxel_gpu.cu)
+    target_include_directories(voxel SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/voxel_gpu_shim
+        ${CMAKE_SOURCE_DIR}/third_party/cuda_voxelizer)
+    target_link_libraries(voxel PRIVATE cuda_voxelizer_vendor CUDA::cudart)
+    target_compile_definitions(voxel PUBLIC OBJTOMC_WITH_CUDA=1)
+    target_compile_options(voxel PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra,-Wpedantic,-Wconversion>
+        # Disable nvcc's default fused multiply-add generation. nvcc emits
+        # FMA for `a * b + c` patterns, GCC on host does not by default
+        # (no -mfma). The single-rounding vs double-rounding difference
+        # tips CPU-vs-GPU byte-equality on close-tied disambiguation
+        # comparisons at high resolutions (empirically detected Session 40:
+        # 64^3 byte-identical, 256^3 diverges at ~1 voxel per 500k because
+        # multiple triangles have distances within an FMA-rounding of one
+        # another). --fmad=false gives IEEE-754 mult-then-add semantics on
+        # device, matching host. See proposal §3.10 risk 1.
+        $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+endif()
 
 # ---------------------------------------------------------------------------
 # orchestrate — Orchestration layer. Ties OBJ Loading → Voxelisation →

@@ -29,6 +29,7 @@
 // ---------------------------------------------------------------------------
 
 #include "objtomc/voxel.hpp"
+#include "voxel_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +38,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <utility>
 
 namespace objtomc::voxel {
 
@@ -449,6 +451,11 @@ VoxelizerOptions default_options() noexcept {
     opts.origin_world    = std::nullopt;
     opts.disambiguation  = DisambiguationRule::CLOSEST_TO_CENTRE;
     opts.max_grid_cells  = MAX_GRID_CELLS_DEFAULT;
+#ifdef OBJTOMC_WITH_CUDA
+    // GPU dispatch preference — default AUTO. See voxel.hpp GpuPreference
+    // + proposal §3.4. On CPU-only builds this field does not exist.
+    opts.prefer_gpu      = GpuPreference::AUTO;
+#endif
     return opts;
 }
 
@@ -499,21 +506,17 @@ std::span<const mesh::Material> VoxelGrid::materials() const noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// voxelize_mesh — orchestrator. See proposal §3.1 for the kernel structure
-// and §3.5 for the closest-to-voxel-centre disambiguation rule.
+// detail::compute_grid_setup — validation + AABB + dims + origin + size cap.
 //
-// Note on material_id storage: mesh::Face::material_id is -1 when no
-// material is assigned (consistent with mesh.hpp's documented convention).
-// We store `max(face.material_id, 0)` in the voxel grid so that a no-material
-// face still produces an occupied voxel (the alternative would alias with
-// EMPTY = -1 and produce silently-empty output on meshes like the bunny
-// fixture that have no MTL). Downstream consumers should consult
-// VoxelGrid::materials() (echoed from the source mesh, may be empty) to
-// resolve the stored id back to a Material — and guard against empty
-// materials() if the source mesh had none.
+// Extracted from the pre-Session-40 monolithic voxelize_mesh so both CPU
+// (fill_cells_cpu) and GPU (src/voxel_gpu.cu fill_cells_gpu) paths consume
+// the SAME grid frame, giving byte-equality of dims/origin by construction.
+// See src/voxel_internal.hpp for the byte-equality rationale.
 // ---------------------------------------------------------------------------
-VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
-                        const VoxelizerOptions& opts) {
+namespace detail {
+
+GridSetup compute_grid_setup(const mesh::Mesh& mesh_in,
+                             const VoxelizerOptions& opts) {
     // ---- 1. validation -------------------------------------------------
     validate_options(opts);
     validate_mesh(mesh_in);
@@ -577,40 +580,44 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
             std::to_string(opts.max_grid_cells) + " cells");
     }
 
-    // ---- 5. construct empty VoxelGrid ----------------------------------
-    VoxelGrid grid;
-    grid.dimensions_      = dims;
-    grid.origin_world_    = origin;
-    grid.voxel_size_      = opts.voxel_size;
-    grid.axis_convention_ = opts.axis_convention;
-    grid.cells_.assign(static_cast<std::size_t>(cells_total), EMPTY);
-    grid.materials_       = mesh_in.materials;   // copy
+    return GridSetup{dims, origin, opts.voxel_size, opts.axis_convention};
+}
 
-    // ---- 6. side-buffer of best (closest) distances per cell ----------
-    // Allocated for the duration of voxelisation only; freed when this
-    // function returns. See proposal §3.8.
-    std::vector<float> best_dist(
-        static_cast<std::size_t>(cells_total),
-        std::numeric_limits<float>::infinity());
-
-    // ---- 7. main kernel — for each triangle ---------------------------
-    // Voxel half-extents are (0.5 * voxel_size) per axis. We work in
-    // OBJ-units, not voxel-units, so the SAT test compares world-space
-    // points against world-space box centres + half-extents. The voxel
-    // centre at integer index (i, j, k) is:
-    //     origin + (i + 0.5, j + 0.5, k + 0.5) * voxel_size.
-    const float vs   = opts.voxel_size;
+// ---------------------------------------------------------------------------
+// detail::fill_cells_cpu — the CPU voxelisation kernel body verbatim from
+// pre-Session-40 voxelize_mesh. Runs the Akenine-Möller SAT + Eberly 1999
+// closest-point disambiguation over every triangle, writing into cells
+// (pre-sized to dims[0]*dims[1]*dims[2] and pre-filled with EMPTY).
+//
+// Note on material_id storage: mesh::Face::material_id is -1 when no
+// material is assigned (consistent with mesh.hpp's documented convention).
+// We store `max(face.material_id, 0)` in the voxel grid so that a
+// no-material face still produces an occupied voxel (the alternative would
+// alias with EMPTY = -1 and produce silently-empty output on meshes like
+// the bunny fixture that have no MTL).
+// ---------------------------------------------------------------------------
+void fill_cells_cpu(const mesh::Mesh& mesh_in,
+                    const GridSetup& setup,
+                    std::vector<std::int32_t>& cells) {
+    const auto& dims = setup.dims;
+    const auto& origin = setup.origin;
+    const float vs   = setup.voxel_size;
     const float half = 0.5f * vs;
     const Vec3 box_half{half, half, half};
+
+    // Side-buffer of best (closest) distances per cell. Allocated for the
+    // duration of the kernel only; freed on return. See proposal §3.8.
+    std::vector<float> best_dist(cells.size(),
+                                 std::numeric_limits<float>::infinity());
 
     for (std::size_t face_idx = 0; face_idx < mesh_in.faces.size(); ++face_idx) {
         const auto& face = mesh_in.faces[face_idx];
         const Vec3 v0 = apply_axis_swap(
-            mesh_in.positions[face.position_indices[0]], opts.axis_convention);
+            mesh_in.positions[face.position_indices[0]], setup.axis);
         const Vec3 v1 = apply_axis_swap(
-            mesh_in.positions[face.position_indices[1]], opts.axis_convention);
+            mesh_in.positions[face.position_indices[1]], setup.axis);
         const Vec3 v2 = apply_axis_swap(
-            mesh_in.positions[face.position_indices[2]], opts.axis_convention);
+            mesh_in.positions[face.position_indices[2]], setup.axis);
 
         // Triangle AABB in OBJ-units.
         Vec3 tmin = {std::min({v0[0], v1[0], v2[0]}),
@@ -641,13 +648,10 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
         const int x_hi = idx_clamp(tmax[0], dims[0], 0);
         const int y_hi = idx_clamp(tmax[1], dims[1], 1);
         const int z_hi = idx_clamp(tmax[2], dims[2], 2);
-        // (After clamp, x_lo <= x_hi always holds; the SAT inside the
-        // loop rejects any clamped-into-grid triangle that does not
-        // actually overlap any in-grid voxel.)
 
         // The material_id stored in the grid. mesh::Face::material_id is
         // -1 when no material is assigned; clamp to 0 so the voxel
-        // becomes occupied (see "Note on material_id storage" above).
+        // becomes occupied (see the "Note on material_id storage" above).
         const std::int32_t mid =
             (face.material_id < 0) ? std::int32_t{0} : face.material_id;
 
@@ -673,25 +677,88 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
                     const float dist = v_len(v_sub(box_centre, cp));
 
                     const std::size_t idx = cell_index(x, y, z, dims);
-                    const std::int32_t current = grid.cells_[idx];
+                    const std::int32_t current = cells[idx];
                     if (current == EMPTY) {
-                        grid.cells_[idx] = mid;
-                        best_dist[idx]   = dist;
+                        cells[idx] = mid;
+                        best_dist[idx] = dist;
                     } else if (dist < best_dist[idx]) {
-                        grid.cells_[idx] = mid;
-                        best_dist[idx]   = dist;
+                        cells[idx] = mid;
+                        best_dist[idx] = dist;
                     }
                     // (dist == best_dist[idx]): equal-distance case.
                     // Tie-break by lower triangle index: since we iterate
                     // faces in ascending face_idx order and only overwrite
                     // on STRICT improvement, the lower-index triangle wins.
-                    // The comparison key is (dist, face_idx) with `<` on
-                    // pairs — equivalent to the strict-less rule above.
                 }
             }
         }
     }
+}
 
+}  // namespace detail
+
+// ---------------------------------------------------------------------------
+// voxelize_mesh — public API. Small dispatcher: shared setup → CPU or GPU
+// cells-fill → VoxelGrid construction (via friend access to private fields).
+//
+// Dispatch rules (see research/gpu_port_proposal.md §3.4):
+//   - CPU-only build (OBJTOMC_WITH_CUDA undefined): CPU always. This is
+//     the ABI-identical path preserved for pre-Session-40 callers.
+//   - GPU build + opts.prefer_gpu == OFF: CPU.
+//   - GPU build + opts.prefer_gpu == ON:  GPU (throws if no device).
+//   - GPU build + opts.prefer_gpu == AUTO (default):
+//       GPU if total grid cells >= GPU_GRID_THRESHOLD (64^3 = 262 144);
+//       CPU otherwise (kernel-launch overhead not amortised on small
+//       grids).
+// ---------------------------------------------------------------------------
+#ifdef OBJTOMC_WITH_CUDA
+// Grid-cell threshold above which AUTO dispatches to GPU. 64^3 = 262 144
+// is calibrated against cuda_voxelizer's launch overhead (~1-5 ms per
+// launch) vs the CPU cost of a 64^3 mesh AABB scan (~50 ms for a
+// typical fixture). See proposal §3.4.
+static constexpr std::int64_t GPU_GRID_THRESHOLD = 64LL * 64LL * 64LL;
+#endif
+
+VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
+                        const VoxelizerOptions& opts) {
+    const detail::GridSetup setup =
+        detail::compute_grid_setup(mesh_in, opts);
+    const std::int64_t cells_total =
+        static_cast<std::int64_t>(setup.dims[0]) *
+        static_cast<std::int64_t>(setup.dims[1]) *
+        static_cast<std::int64_t>(setup.dims[2]);
+
+    std::vector<std::int32_t> cells(
+        static_cast<std::size_t>(cells_total), EMPTY);
+
+    bool use_gpu = false;
+#ifdef OBJTOMC_WITH_CUDA
+    if (opts.prefer_gpu == GpuPreference::ON) {
+        use_gpu = true;
+    } else if (opts.prefer_gpu == GpuPreference::AUTO &&
+               cells_total >= GPU_GRID_THRESHOLD) {
+        use_gpu = true;
+    }
+    if (use_gpu) {
+        detail::fill_cells_gpu(mesh_in, setup, cells);
+    } else {
+        detail::fill_cells_cpu(mesh_in, setup, cells);
+    }
+#else
+    (void)use_gpu;
+    detail::fill_cells_cpu(mesh_in, setup, cells);
+#endif
+
+    // Friend-access construction of the immutable VoxelGrid. voxelize_mesh
+    // is the only function declared as friend of VoxelGrid; both CPU and
+    // GPU cell-fill paths return via this single wrap point.
+    VoxelGrid grid;
+    grid.dimensions_      = setup.dims;
+    grid.origin_world_    = setup.origin;
+    grid.voxel_size_      = setup.voxel_size;
+    grid.axis_convention_ = setup.axis;
+    grid.cells_           = std::move(cells);
+    grid.materials_       = mesh_in.materials;   // copy
     return grid;
 }
 
