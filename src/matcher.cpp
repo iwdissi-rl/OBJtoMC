@@ -7,6 +7,7 @@
 // 414 full-cube MC 1.21.5 blocks.
 
 #include "objtomc/matcher.hpp"
+#include "matcher_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -160,6 +161,9 @@ MatcherOptions default_options() noexcept {
     o.opacity_threshold           = 0.5f;
     o.luminance_proximity_weight  = 0.05f;
     o.opacity_proximity_weight    = 0.05f;
+#ifdef OBJTOMC_WITH_CUDA
+    o.prefer_gpu                  = ::objtomc::GpuPreference::AUTO;
+#endif
     return o;
 }
 
@@ -190,6 +194,15 @@ chunk::BlockState Matcher::match(const mesh::Material& material) const {
     return out;
 }
 
+#ifdef OBJTOMC_WITH_CUDA
+// GPU batch-size threshold — below this the kernel-launch overhead
+// exceeds the per-material CPU cost. 1000 materials per proposal §3.5.
+// A default-options AUTO caller with a small batch (e.g. Cornell Box's
+// 8 materials) stays on CPU; a Sponza-scale batch (473k voxels' worth of
+// materials) goes GPU.
+static constexpr std::size_t GPU_BATCH_THRESHOLD = 1000;
+#endif
+
 void Matcher::match_batch(std::span<const mesh::Material> in,
                           std::span<chunk::BlockState>    out) const {
     if (in.size() != out.size()) {
@@ -197,6 +210,21 @@ void Matcher::match_batch(std::span<const mesh::Material> in,
                             std::to_string(in.size()) +
                             ", out.size()=" + std::to_string(out.size()));
     }
+
+#ifdef OBJTOMC_WITH_CUDA
+    bool use_gpu = false;
+    if (opts_.prefer_gpu == ::objtomc::GpuPreference::ON) {
+        use_gpu = true;
+    } else if (opts_.prefer_gpu == ::objtomc::GpuPreference::AUTO &&
+               in.size() >= GPU_BATCH_THRESHOLD) {
+        use_gpu = true;
+    }
+    if (use_gpu) {
+        detail::fill_matches_gpu(in, out, *db_,
+                                 std::span<const Oklab>(cached_), opts_);
+        return;
+    }
+#endif
 
     for (std::size_t i = 0; i < in.size(); ++i) {
         const mesh::Material& material = in[i];

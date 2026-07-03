@@ -6,11 +6,18 @@
 #include <string>
 #include <vector>
 
-#include "objtomc/chunk.hpp"     // chunk::BlockState
-#include "objtomc/mesh.hpp"      // mesh::Material
-#include "objtomc/palette.hpp"   // palette::PaletteDB
+#include "objtomc/chunk.hpp"           // chunk::BlockState
+#include "objtomc/gpu_preference.hpp"  // objtomc::GpuPreference (under OBJTOMC_WITH_CUDA)
+#include "objtomc/mesh.hpp"            // mesh::Material
+#include "objtomc/palette.hpp"         // palette::PaletteDB
 
 namespace objtomc::matcher {
+
+#ifdef OBJTOMC_WITH_CUDA
+// Re-export the shared enum into objtomc::matcher so callers can spell it
+// as matcher::GpuPreference::ON. Same type as objtomc::GpuPreference.
+using ::objtomc::GpuPreference;
+#endif
 
 // ---------------------------------------------------------------------------
 // Oklab — perceptually-uniform colour space (Björn Ottosson, 2020).
@@ -36,6 +43,14 @@ struct MatcherOptions {
     // Bonus weights for luminance / opacity proximity in their branches.
     float luminance_proximity_weight; // default 0.05
     float opacity_proximity_weight;   // default 0.05
+#ifdef OBJTOMC_WITH_CUDA
+    // GPU dispatch preference. Default AUTO. See objtomc/gpu_preference.hpp.
+    // AUTO: GPU when batch size >= GPU_BATCH_THRESHOLD (1000 materials);
+    //       else CPU. ON: always GPU. OFF: always CPU. Field is guarded by
+    //       OBJTOMC_WITH_CUDA so CPU-only builds stay ABI-identical to
+    //       Session 37 (proposal §3.11 preservation contract).
+    ::objtomc::GpuPreference prefer_gpu;
+#endif
 };
 
 MatcherOptions default_options() noexcept;

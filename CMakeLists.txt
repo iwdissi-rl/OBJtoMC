@@ -201,7 +201,34 @@ target_compile_definitions(palette PRIVATE
 # ---------------------------------------------------------------------------
 add_library(matcher STATIC src/matcher.cpp)
 target_include_directories(matcher PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(matcher PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(matcher PUBLIC palette mesh chunk)
+
+# ---------------------------------------------------------------------------
+# GPU matcher path — Session 41 (v0.2 work item #3, implementation slice 3).
+#
+# When WITH_CUDA_ENABLED, add src/matcher_gpu.cu as an additional source to
+# the matcher library and link CUDA::cudart. OBJTOMC_WITH_CUDA is defined
+# PUBLIC on the matcher library so callers see the guarded prefer_gpu field
+# on MatcherOptions when they include objtomc/matcher.hpp.
+#
+# --fmad=false MUST be applied to matcher_gpu.cu for byte-equality — the
+# Oklab arithmetic (sRGB decode + linear→Oklab + score computation) is
+# heavily multiply-add; nvcc's default FMA emission diverges from GCC on
+# host at low-order bits. Session 40 SHA-pin (DECISIONS.md 2026-07-04)
+# documents the same finding for the voxelizer. --fmad=false is a
+# per-.cu-file setting; we apply it via target_compile_options at the
+# matcher library level so both this file and any future .cu additions
+# inherit it.
+# ---------------------------------------------------------------------------
+if(WITH_CUDA_ENABLED)
+    target_sources(matcher PRIVATE src/matcher_gpu.cu)
+    target_link_libraries(matcher PRIVATE CUDA::cudart)
+    target_compile_definitions(matcher PUBLIC OBJTOMC_WITH_CUDA=1)
+    target_compile_options(matcher PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra,-Wpedantic,-Wconversion>
+        $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+endif()
 
 # ---------------------------------------------------------------------------
 # voxel — Voxelisation layer. Consumes a mesh::Mesh and produces a dense

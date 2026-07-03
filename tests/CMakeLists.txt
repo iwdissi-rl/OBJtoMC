@@ -567,6 +567,13 @@ if(WITH_CUDA_ENABLED)
         COMMAND test_voxel_gpu_determinism ${SPONZA_FIXTURES_DIR}/sponza.obj
     )
 
+    # Session 41 — GPU matcher byte-equality gate.
+    add_executable(test_matcher_cpu_gpu_equality test_matcher_cpu_gpu_equality.cpp)
+    target_link_libraries(test_matcher_cpu_gpu_equality
+                          PRIVATE matcher palette mesh chunk)
+    add_test(NAME matcher_cpu_gpu_equality
+             COMMAND test_matcher_cpu_gpu_equality)
+
     # Apply the ASan+CUDA workaround to every registered ctest in this
     # directory. Iterating the DIRECTORY property is easier to keep in
     # sync than listing each test individually. No pre-existing test has

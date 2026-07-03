@@ -8,7 +8,8 @@
 #include <stdexcept>
 #include <vector>
 
-#include "objtomc/mesh.hpp"   // mesh::Mesh, mesh::Material
+#include "objtomc/gpu_preference.hpp"   // objtomc::GpuPreference (only present under OBJTOMC_WITH_CUDA)
+#include "objtomc/mesh.hpp"             // mesh::Mesh, mesh::Material
 
 namespace objtomc::voxel {
 
@@ -39,22 +40,14 @@ enum class DisambiguationRule {
     // FIRST_TOUCHED      // deferred to v0.2 — ABI-compatible addition
 };
 
+// GpuPreference lives in include/objtomc/gpu_preference.hpp (extracted
+// Session 41 to be shared with matcher.hpp; see that header's comment
+// block for the AUTO/ON/OFF semantics). We re-export it into the
+// objtomc::voxel namespace so Session 40 call sites like
+// `objtomc::voxel::GpuPreference::ON` remain valid unchanged.
 #ifdef OBJTOMC_WITH_CUDA
-// ---------------------------------------------------------------------------
-// GpuPreference — v0.2 work item #3 opt-in GPU dispatch selector. Present
-// only when the library is built with -DWITH_CUDA=ON (which sets
-// OBJTOMC_WITH_CUDA=1). On CPU-only builds this enum + the prefer_gpu field
-// below do not exist; the public API stays ABI-identical to Session 37.
-//
-// See research/gpu_port_proposal.md §3.4 (dispatch semantics) + §3.11
-// (public API preservation contract).
-// ---------------------------------------------------------------------------
-enum class GpuPreference {
-    AUTO,   // GPU when total grid cells >= GPU_GRID_THRESHOLD (64^3 = 262144); else CPU
-    ON,     // Always GPU. Throws voxel_error if no CUDA device present.
-    OFF,    // Always CPU. Identical behaviour to a CPU-only build.
-};
-#endif  // OBJTOMC_WITH_CUDA
+using ::objtomc::GpuPreference;
+#endif
 
 // ---------------------------------------------------------------------------
 // VoxelizerOptions — v0.1 hardcoded defaults (default_options()), tunable by
@@ -75,8 +68,8 @@ struct VoxelizerOptions {
     // Maximum grid size in cells (dim_x * dim_y * dim_z). Default 1024^3.
     std::int64_t                             max_grid_cells;
 #ifdef OBJTOMC_WITH_CUDA
-    // GPU dispatch preference. Default AUTO. See GpuPreference above.
-    GpuPreference                            prefer_gpu;
+    // GPU dispatch preference. Default AUTO. See objtomc/gpu_preference.hpp.
+    ::objtomc::GpuPreference                 prefer_gpu;
 #endif
 };
 
