@@ -1,0 +1,69 @@
+# renders_translucent_provisional.csv — Session 44 hand-audit.
+#
+# **PROVISIONAL** — this file feeds Phase-4T-preliminary metric ONLY per
+# matcher_quality_proposal §2.4.2 maintainer edit. Sub-item (c)'s Session 46
+# authoritative extractor-derived + curated palette-CSV column SUPERSEDES
+# this file. When (c) lands, the DECISIONS-recorded Phase-4T-preliminary →
+# Phase-4T-authoritative baseline shift documents the delta so downstream
+# sub-items can rebase.
+#
+# Semantic: `renders_translucent = true` means the block visibly transmits
+# light to the viewer's eye (glass, ice, leaves, honey, slime). `false`
+# means the block renders as an opaque cube despite carrying opacity < 15
+# in the palette CSV (e.g. beacon, which filters 1 light level but reads
+# as a solid frame in-game).
+#
+# Scope: the 45 palette entries with `opacity < 15`. Blocks with opacity
+# == 15 are trivially renders_translucent = false and are NOT listed
+# here — the metric assumes false for all opacity == 15 blocks.
+#
+# Author: Session 44 (the tooling). Verified against in-game screenshots +
+# Minecraft wiki descriptions where the visual behaviour was non-obvious
+# (beacon, cactus, spawner, vault, trial_spawner in particular).
+#
+# columns: name,renders_translucent,rationale
+minecraft:oak_leaves,true,leaves render with per-pixel transparency; view-through visible
+minecraft:spruce_leaves,true,leaves render with per-pixel transparency
+minecraft:birch_leaves,true,leaves render with per-pixel transparency
+minecraft:jungle_leaves,true,leaves render with per-pixel transparency
+minecraft:acacia_leaves,true,leaves render with per-pixel transparency
+minecraft:cherry_leaves,true,leaves render with per-pixel transparency
+minecraft:dark_oak_leaves,true,leaves render with per-pixel transparency
+minecraft:pale_oak_leaves,true,leaves render with per-pixel transparency (MC 1.21.5)
+minecraft:mangrove_leaves,true,leaves render with per-pixel transparency
+minecraft:azalea_leaves,true,leaves render with per-pixel transparency
+minecraft:flowering_azalea_leaves,true,leaves render with per-pixel transparency
+minecraft:glass,true,clear glass — canonical translucent block
+minecraft:spawner,false,mob spawner renders as opaque metal cage with visible mob spinning inside; visually reads as a solid block frame not translucent surface
+minecraft:ice,true,ice renders semi-transparent; view-through visible
+minecraft:cactus,false,cactus renders as opaque green cube; opacity=0 in palette is a light-propagation quirk not visual translucency
+minecraft:white_stained_glass,true,stained glass — canonical translucent
+minecraft:orange_stained_glass,true,stained glass
+minecraft:magenta_stained_glass,true,stained glass
+minecraft:light_blue_stained_glass,true,stained glass
+minecraft:yellow_stained_glass,true,stained glass
+minecraft:lime_stained_glass,true,stained glass
+minecraft:pink_stained_glass,true,stained glass
+minecraft:gray_stained_glass,true,stained glass
+minecraft:light_gray_stained_glass,true,stained glass
+minecraft:cyan_stained_glass,true,stained glass
+minecraft:purple_stained_glass,true,stained glass
+minecraft:blue_stained_glass,true,stained glass
+minecraft:brown_stained_glass,true,stained glass
+minecraft:green_stained_glass,true,stained glass
+minecraft:red_stained_glass,true,stained glass
+minecraft:black_stained_glass,true,stained glass
+minecraft:beacon,false,beacon renders as opaque cube with translucent facets on the frame's inner glow; visually reads as a solid block — OQ 2026-06-22 confirms the beacon-vs-glass ordering surprise this file is designed to correct
+minecraft:slime_block,true,slime block renders semi-transparent green; view-through visible
+minecraft:frosted_ice,true,frosted ice like ice — semi-transparent
+minecraft:honey_block,true,honey block renders semi-transparent yellow; view-through visible
+minecraft:copper_grate,true,copper grates are lattice geometry — view-through visible through the grate holes
+minecraft:exposed_copper_grate,true,copper grate variant
+minecraft:weathered_copper_grate,true,copper grate variant
+minecraft:oxidized_copper_grate,true,copper grate variant
+minecraft:waxed_copper_grate,true,copper grate variant
+minecraft:waxed_exposed_copper_grate,true,copper grate variant
+minecraft:waxed_weathered_copper_grate,true,copper grate variant
+minecraft:waxed_oxidized_copper_grate,true,copper grate variant
+minecraft:trial_spawner,false,trial spawner renders as opaque cube like regular spawner
+minecraft:vault,false,vault renders as opaque cube with animated glow slot; visually reads solid

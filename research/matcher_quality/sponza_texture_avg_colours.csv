@@ -1,0 +1,45 @@
+# sponza_texture_avg_colours.csv — per-material average sRGB colour, Tier III
+# corpus of matcher_quality_proposal §2.3 (v0.2 item #4).
+#
+# Averaging: unweighted mean of source PNG pixels in LINEAR-LIGHT sRGB
+# (physically-correct); result re-encoded to sRGB-gamma uint8 for storage.
+# Fully-transparent pixels (alpha == 0) excluded. See scripts/sample_sponza_
+# textures.py header for details.
+#
+# Materials whose map_Kd could not be located OR decoded fall back to the raw
+# MTL Kd value with source_texture = "mtl_kd" and source_texture_sha256
+# = "n/a"; sample_pixel_count = 0.
+#
+# Sponza source: https://casual-effects.com/g3d/data10/common/model/
+# crytek_sponza/sponza.zip
+# Archive SHA-256: da005cbee0be2df2abc8513f3ceb61bcb6f69aac112babcd9c00169
+# a27c2770c
+# License: CC BY 3.0 (attribution chain: Dabrovic 2002 -> Meinl+Crytek 2010
+# -> McGuire 2011 -> objtomc 2026). This CSV is a derivative work under CC
+# BY 3.0; PNGs unvendored per matcher_quality_proposal §3.5.4.
+# columns: material_name,avg_r_srgb_gamma_u8,avg_g_srgb_gamma_u8,avg_b_srgb_gamma_u8,source_texture,source_texture_sha256,sample_pixel_count
+leaf,70,67,50,sponza_thorn_diff.png,fbe4564dcfbba7f225f6df00caa92365cf653d6bf496bb3da59b164fa1c84aac,130240
+vase_round,111,99,100,vase_round.png,5ee2138dc016aff582e50c2725b7749cdf0681537147d3cd9034e0d10414fb7c,1048576
+Material__57,145,125,34,vase_plant.png,2e3e7cdcc544beec19338b7e3f33e7814847b1e73294f4bae4c18d3740a7b1e1,409750
+Material__298,107,97,80,background.png,21f5955648b003a0046ca16054aef2db07901d73662e8b8141e73ba551e06f87,1048576
+bricks,154,146,128,spnza_bricks_a_diff.png,6653d814e78df5b1d72bff0bc4f055b19f40c60125368c66f706862a77b11e19,1048576
+arch,133,123,107,sponza_arch_diff.png,1a2e127ce784d2d4f061eae58a780cdcc8daba6c0f254d06e5494e41d4874ff2,1048576
+ceiling,171,153,123,sponza_ceiling_a_diff.png,6d6ff12242bd2b0680c45b27d0234cb4fc636959a2575f29dd6eb02251348f4c,1048576
+column_a,158,147,131,sponza_column_a_diff.png,13c3511250c790ad260845ffd5d56f4622bb3760316831403c3cc182bcf40095,1048576
+floor,181,165,139,sponza_floor_a_diff.png,ec677f8d95abc307a7551a501ed20c9cd79bbc38d41963a7d74a35d096d2f1c4,1048576
+column_c,166,158,141,sponza_column_c_diff.png,eaf9050e0cb05bc5184b4fc7108085036e049ca6a3a93c0b11ed8e920831472d,1048576
+details,108,102,95,sponza_details_diff.png,01012e0e81c20b10856dd34476069aadf1270cedd47e13b2760ae7dec341a7ab,1048576
+column_b,144,134,117,sponza_column_b_diff.png,e893c9f0a8ca1cb7b649476eaa6ce98ece4d82b447f2a9858dbf0be4ce05c8e1,1048576
+Material__47,255,255,255,mtl_kd,n/a,0
+flagpole,148,142,139,sponza_flagpole_diff.png,c65b8651f12a05063118a91bd2c1ebb37a403936bb2b79226cf842917ebfbcbe,1048576
+fabric_e,57,106,36,sponza_fabric_green_diff.png,eb009dd943c52da29e3d7dd4d30e12a912769ffc7659e97dba7a2483fa79c6c3,1048576
+fabric_d,59,80,128,sponza_fabric_blue_diff.png,b7398d4f96ac101b92a42f8e093754fa239bb80e0038727e49574abed5473c20,1048576
+fabric_a,117,54,32,sponza_fabric_diff.png,1fe1ee45005ddcbcde414096c1018c9296e5dfed528ecc99f9ce7d82862fd963,1048576
+fabric_g,91,102,151,sponza_curtain_blue_diff.png,267f19cc7b95d665965f49117e6ef5cabc62ae65b5c921ca86c5f53ab5f55f97,4194304
+fabric_c,138,47,26,sponza_curtain_diff.png,dbe47dc0d50b3b5917d94f92c667a1068de776cf1b1af9f931358671a8e8a677,4194304
+fabric_f,63,97,20,sponza_curtain_green_diff.png,2a1141c908bbbcc66064ef0cd1888d26e4493560ca1a8add94ba96e4413ef0b5,4194304
+chain,62,69,69,chain_texture.png,5745cf634538333bcad860e5da4bd57d288166631aadc4b0268fc2103b152242,262144
+vase_hanging,40,43,42,vase_hanging.png,310b171c5508c7f1df97cc87ebb2139141f4fbf6cd65d6cf1675e92ed64521b6,1048576
+vase,166,150,127,vase_dif.png,141d957726bb80708e3210d481c82d4038016cc31e414c541eea76d61e600bd5,1048576
+Material__25,117,105,81,lion.png,13c763cb8d01e781121180a2f0c7ddc6c672d0a146ffc1359a5795dba99db5c2,1048576
+roof,123,119,122,sponza_roof_diff.png,be5c0e86671a709c5d2f87820f92414bf4c069c5041d2fb548f8bf130f7616dd,1048576
