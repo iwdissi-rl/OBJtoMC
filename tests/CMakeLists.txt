@@ -574,6 +574,19 @@ if(WITH_CUDA_ENABLED)
     add_test(NAME matcher_cpu_gpu_equality
              COMMAND test_matcher_cpu_gpu_equality)
 
+    # Session 42 — GPU Tier-4 helper (build target only; runs the §3.9
+    # SHA-comparison gate against the Session 36 CPU-committed artifact)
+    # + bench_cpu_vs_gpu informational benchmark (build target only,
+    # proposal §3.7). Neither is a ctest — the SHA gate is exercised by
+    # the maintainer + Session 42 close-out run; the benchmark reports
+    # host-dependent wall-clock numbers.
+    add_executable(sponza_gpu_tier4_helper manual/sponza_gpu_tier4_helper.cpp)
+    target_link_libraries(sponza_gpu_tier4_helper PRIVATE orchestrate matcher)
+
+    add_executable(bench_cpu_vs_gpu manual/bench_cpu_vs_gpu.cpp)
+    target_link_libraries(bench_cpu_vs_gpu
+                          PRIVATE orchestrate voxel matcher palette mesh chunk)
+
     # Apply the ASan+CUDA workaround to every registered ctest in this
     # directory. Iterating the DIRECTORY property is easier to keep in
     # sync than listing each test individually. No pre-existing test has
