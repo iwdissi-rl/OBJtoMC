@@ -112,6 +112,12 @@ __constant__ float c_palette_b[kMaxPaletteEntries];
 __constant__ int   c_palette_opacity[kMaxPaletteEntries];
 __constant__ int   c_palette_luminance[kMaxPaletteEntries];
 __constant__ int   c_palette_alpha_rank[kMaxPaletteEntries];
+// Session 46 (c′): renders_translucent flag per palette entry — the ruler for
+// the two-pool partition on transparent + opaque branches (translucency_pool_
+// partitioning_proposal.md §4). Uploaded once per PaletteDB address alongside
+// the existing metadata arrays; ~1.6 KB additional constant-memory usage
+// (~12 KB total of the 64 KB budget). See ensure_palette_uploaded below.
+__constant__ int   c_palette_renders_translucent[kMaxPaletteEntries];
 __constant__ int   c_palette_size;
 
 // ---- Device sRGB → linear → Oklab port -----------------------------------
@@ -219,10 +225,14 @@ __global__ void match_batch_kernel(
     for (int p = 0; p < n_pal; ++p) {
         const int  entry_opac = c_palette_opacity[p];
         const int  entry_lum  = c_palette_luminance[p];
+        const int  entry_rt   = c_palette_renders_translucent[p];
 
-        // Pool filter (§3.5 / §3.6). Opaque branch (§3.7) uses full pool.
-        if (branch == BR_EMISSIVE    && entry_lum  == 0)  continue;
-        if (branch == BR_TRANSPARENT && entry_opac >= 15) continue;
+        // Pool filter (§3.5 emissive unchanged; §3.6 transparent + §3.7 opaque
+        // replaced by Session 46 (c′) two-pool partition per
+        // research/translucency_pool_partitioning_proposal.md §4).
+        if (branch == BR_EMISSIVE    && entry_lum == 0) continue;
+        if (branch == BR_TRANSPARENT && !entry_rt)      continue;
+        if (branch == BR_OPAQUE      &&  entry_rt)      continue;
 
         const float pal_L = c_palette_L[p];
         const float pal_a = c_palette_a[p];
@@ -320,19 +330,22 @@ void ensure_palette_uploaded(
         alpha_rank[static_cast<std::size_t>(order[static_cast<std::size_t>(k)])] = k;
     }
 
-    // Flatten Oklab + metadata into 6 host arrays for cudaMemcpyToSymbol.
+    // Flatten Oklab + metadata into 7 host arrays for cudaMemcpyToSymbol.
+    // Session 46 (c′) adds the renders_translucent array.
     std::vector<float> h_L(static_cast<std::size_t>(n));
     std::vector<float> h_a(static_cast<std::size_t>(n));
     std::vector<float> h_b(static_cast<std::size_t>(n));
     std::vector<int>   h_opacity(static_cast<std::size_t>(n));
     std::vector<int>   h_luminance(static_cast<std::size_t>(n));
+    std::vector<int>   h_renders_translucent(static_cast<std::size_t>(n));
     for (int p = 0; p < n; ++p) {
         h_L[static_cast<std::size_t>(p)] = palette_oklab[static_cast<std::size_t>(p)].L;
         h_a[static_cast<std::size_t>(p)] = palette_oklab[static_cast<std::size_t>(p)].a;
         h_b[static_cast<std::size_t>(p)] = palette_oklab[static_cast<std::size_t>(p)].b;
         const auto& entry = db.begin()[p];
-        h_opacity[static_cast<std::size_t>(p)]   = static_cast<int>(entry.opacity);
-        h_luminance[static_cast<std::size_t>(p)] = static_cast<int>(entry.luminance);
+        h_opacity[static_cast<std::size_t>(p)]             = static_cast<int>(entry.opacity);
+        h_luminance[static_cast<std::size_t>(p)]           = static_cast<int>(entry.luminance);
+        h_renders_translucent[static_cast<std::size_t>(p)] = entry.renders_translucent ? 1 : 0;
     }
 
     const std::size_t nbytes_f = static_cast<std::size_t>(n) * sizeof(float);
@@ -351,6 +364,9 @@ void ensure_palette_uploaded(
         cudaMemcpyHostToDevice));
     OBJTOMC_MATCHER_CUDA_CHECK(cudaMemcpyToSymbol(
         c_palette_alpha_rank, alpha_rank.data(), nbytes_i, 0,
+        cudaMemcpyHostToDevice));
+    OBJTOMC_MATCHER_CUDA_CHECK(cudaMemcpyToSymbol(
+        c_palette_renders_translucent, h_renders_translucent.data(), nbytes_i, 0,
         cudaMemcpyHostToDevice));
     OBJTOMC_MATCHER_CUDA_CHECK(cudaMemcpyToSymbol(
         c_palette_size, &n, sizeof(int), 0, cudaMemcpyHostToDevice));

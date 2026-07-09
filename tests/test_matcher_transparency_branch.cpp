@@ -2,14 +2,15 @@
 //
 // Cool-white-ish translucent Material (kd = {0.8, 0.9, 1.0} sRGB-gamma,
 // d = 0.2) → matcher enters the transparent branch (d < 0.5 threshold) and
-// selects from the opacity < 15 pool. Acceptable set TIGHTENED to the
-// §1.5-harness empirical top-2 picks for this exact input per OPEN_QUESTIONS
-// 2026-06-22 option (C): {beacon, glass}. Beacon is the harness top-1
-// (score 0.2140); glass is the runner-up (0.2195) — the 0.0055 margin
-// could flip on a future float-precision shift, so bounding the top-2
-// keeps the test stable while remaining the strictest sensible set.
-// Posture per §6: empirical harness output IS the spec; widening this set
-// further would relax (forbidden), narrowing further would risk float drift.
+// selects from the transparent pool.
+//
+// Session 46 (c′) update: pool = {renders_translucent == true} per
+// research/translucency_pool_partitioning_proposal.md §4.1. Beacon is
+// renders_translucent=false → EXITS the pool structurally; the OQ
+// 2026-06-22 beacon-vs-glass ordering issue is closed at the palette layer.
+// Acceptable set narrows to {white_stained_glass, glass} — the empirical
+// top-2 picks under (c′)'s partitioned pool for this Kd. Predicted by
+// research/matcher_quality/predict.py at Session 45 counterfactual.
 
 #include "objtomc/matcher.hpp"
 #include "objtomc/mesh.hpp"
@@ -57,18 +58,21 @@ int main() {
         fail(std::string("matcher.match threw: ") + e.what());
     }
 
+    // Session 46 (c′): transparent-branch pool = {renders_translucent==true}.
+    // Beacon is renders_translucent=false → excluded; glass + stained-glass
+    // family are the only remaining perceptual near-neighbours for cool-white
+    // Kd. Empirical top-2 under (c′): {white_stained_glass, glass}.
     const std::set<std::string> acceptable = {
-        "minecraft:beacon",   // empirical top-1 (score 0.2140)
-        "minecraft:glass",    // runner-up      (score 0.2195)
+        "minecraft:white_stained_glass",
+        "minecraft:glass",
     };
     if (acceptable.find(result.name) == acceptable.end()) {
         fail("cool-white translucent match picked '" + result.name +
-             "' which is outside the harness-empirical acceptable set "
-             "{beacon, glass}. Per proposal §6 (and OPEN_QUESTIONS "
-             "2026-06-22 option C), the empirical top-2 picks ARE the spec; "
-             "deviation here means a matcher-behavior change (algorithm, "
-             "weights, or pool filter), not a test bug — re-run the harness "
-             "before adjusting the set.");
+             "' which is outside the (c′)-partitioned acceptable set "
+             "{white_stained_glass, glass}. Per proposal §6, deviation "
+             "here means a matcher-behavior change (algorithm, weights, "
+             "pool filter, or renders_translucent curation) — re-run "
+             "predict.py before adjusting the set.");
     }
 
     std::printf("PASS: matcher_transparency_branch (picked '%s' for kd=(0.8,0.9,1.0), d=0.2)\n",

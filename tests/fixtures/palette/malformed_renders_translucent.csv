@@ -1,0 +1,12 @@
+# mc_version: 1.21.5
+# schema_version: 2
+# prismarinejs_sha: d4d349218383bc0befcdd8bb0adac135234fe5d7
+# extractor_commit: TEST_FIXTURE_NOT_REAL
+# extractor_pillow_version: TEST_FIXTURE_NOT_REAL
+# generated: 2026-07-09T00:00:00Z
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path,renders_translucent
+#
+# Session 46 (c′) malformed fixture: renders_translucent="maybe" is invalid.
+# Loader must throw palette_error per translucency_pool_partitioning_
+# proposal §6.2 palette_malformed sub-case addition.
+minecraft:stone,15,0,120,120,120,1,,maybe

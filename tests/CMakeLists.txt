@@ -261,6 +261,7 @@ add_test(
             ${PALETTE_FIXTURES_DIR}/malformed_wrong_columns.csv
             ${PALETTE_FIXTURES_DIR}/malformed_opacity_oob.csv
             ${PALETTE_FIXTURES_DIR}/malformed_nonnumeric_luminance.csv
+            ${PALETTE_FIXTURES_DIR}/malformed_renders_translucent.csv
             ${PALETTE_BLOCKS_JSON}
 )
 
@@ -285,6 +286,18 @@ target_link_libraries(test_palette_default_shape PRIVATE palette)
 add_test(
     NAME palette_default_shape
     COMMAND test_palette_default_shape
+)
+
+# Session 46 (c′) — renders_translucent curation spot-check per
+# research/translucency_pool_partitioning_proposal.md §6.1. Asserts
+# specific entries have the expected renders_translucent value + aggregate
+# 30 true / 384 false invariant.
+add_executable(test_palette_renders_translucent_spot_check
+               test_palette_renders_translucent_spot_check.cpp)
+target_link_libraries(test_palette_renders_translucent_spot_check PRIVATE palette)
+add_test(
+    NAME palette_renders_translucent_spot_check
+    COMMAND test_palette_renders_translucent_spot_check
 )
 
 # ---------------------------------------------------------------------------

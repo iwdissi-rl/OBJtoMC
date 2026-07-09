@@ -1,12 +1,14 @@
-// Malformed CSV test for the palette DB (proposal §3.11(d)).
+// Malformed CSV test for the palette DB (proposal §3.11(d) + Session 46 (c′)
+// addition per translucency_pool_partitioning_proposal.md §6.2).
 //
-// Four sub-cases, each must throw palette_error (NOT std::runtime_error or
+// Five sub-cases, each must throw palette_error (NOT std::runtime_error or
 // std::exception or a generic throw):
 //
 //   (1) path that doesn't exist
 //   (2) wrong column count
 //   (3) opacity out of [0, 15]
 //   (4) non-numeric luminance
+//   (5) invalid renders_translucent value (Session 46 (c′) schema_v2)
 
 #include "objtomc/palette.hpp"
 
@@ -48,17 +50,18 @@ std::string expect_palette_error(const std::filesystem::path& csv,
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 6) {
+    if (argc != 7) {
         std::cerr << "usage: " << argv[0]
                   << " <missing.csv> <wrong_cols.csv> <opacity_oob.csv>"
-                  << " <nonnum_lum.csv> <blocks.json>\n";
+                  << " <nonnum_lum.csv> <invalid_rt.csv> <blocks.json>\n";
         return 2;
     }
-    const std::filesystem::path missing       = argv[1];
-    const std::filesystem::path wrong_cols    = argv[2];
-    const std::filesystem::path opacity_oob   = argv[3];
-    const std::filesystem::path nonnum_lum    = argv[4];
-    const std::filesystem::path blocks_json   = argv[5];
+    const std::filesystem::path missing        = argv[1];
+    const std::filesystem::path wrong_cols     = argv[2];
+    const std::filesystem::path opacity_oob    = argv[3];
+    const std::filesystem::path nonnum_lum     = argv[4];
+    const std::filesystem::path invalid_rt     = argv[5];
+    const std::filesystem::path blocks_json    = argv[6];
 
     if (std::filesystem::exists(missing)) {
         fail("missing-path fixture was supposed to be absent: " +
@@ -73,6 +76,10 @@ int main(int argc, char** argv) {
     if (!std::filesystem::exists(nonnum_lum)) {
         fail("nonnum-lum fixture not found at " + nonnum_lum.string());
     }
+    if (!std::filesystem::exists(invalid_rt)) {
+        fail("invalid-renders_translucent fixture not found at " +
+             invalid_rt.string());
+    }
 
     std::string e1 = expect_palette_error(missing, blocks_json, "missing-path");
     if (!e1.empty()) fail(e1);
@@ -82,7 +89,10 @@ int main(int argc, char** argv) {
     if (!e3.empty()) fail(e3);
     std::string e4 = expect_palette_error(nonnum_lum, blocks_json, "non-numeric-luminance");
     if (!e4.empty()) fail(e4);
+    std::string e5 = expect_palette_error(invalid_rt, blocks_json,
+                                          "invalid-renders_translucent");
+    if (!e5.empty()) fail(e5);
 
-    std::printf("PASS: palette malformed CSV throws palette_error (4 sub-cases)\n");
+    std::printf("PASS: palette malformed CSV throws palette_error (5 sub-cases)\n");
     return 0;
 }

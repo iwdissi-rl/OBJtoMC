@@ -3,7 +3,7 @@
 # extractor_commit: TEST_FIXTURE_NOT_REAL
 # extractor_pillow_version: TEST_FIXTURE_NOT_REAL
 # generated: 2026-06-22T00:00:00Z
-# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path,renders_translucent
 #
 # TEST FIXTURE for proposal §3.13 (e) matcher_tie_break.
 #
@@ -17,5 +17,5 @@
 #
 # Any colour works (the matcher is colour-blind in tie territory); using mid-
 # gray (120, 120, 120) keeps the picked target intuitive in test output.
-minecraft:granite,15,0,120,120,120,1,
-minecraft:stone,15,0,120,120,120,1,
+minecraft:granite,15,0,120,120,120,1,,false
+minecraft:stone,15,0,120,120,120,1,,false

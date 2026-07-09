@@ -1,36 +1,32 @@
-// matcher_sponza_smoke — scale Tier-4 proposal §3.10.1.
+// matcher_sponza_smoke — scale Tier-4 proposal §3.10.1
+// + Session 46 (c′) update per research/translucency_pool_partitioning_
+// proposal.md §6.2 + §5.2 Tier III counterfactual.
 //
 // All 25 Sponza materials have identical Kd = (1, 1, 1) (uniform pure white),
-// Ke = (0, 0, 0), d = 1.0 per the §1.6 empirical MTL analysis. The matcher's
-// opaque branch on this input picks minecraft:white_stained_glass at Oklab
-// distance 0.0000 (exact match — palette CSV row for white_stained_glass has
-// r,g,b = 255,255,255 which maps to Oklab (1.0, 0, 0)).
+// Ke = (0, 0, 0), d = 1.0 per the §1.6 empirical MTL analysis. Under v0.1
+// the matcher's opaque branch picked minecraft:white_stained_glass at Oklab
+// distance 0.0000 (exact match) — the OQ 2026-07-04 "Near-white opaque-
+// branch matcher-quality" pathology at its origin. Session 46 (c′) fixed
+// this pathology STRUCTURALLY via two-pool partitioning: white_stained_glass
+// is renders_translucent=true → excluded from the opaque-branch pool. The
+// perceptually next-nearest opaque neighbour, minecraft:snow_block
+// (opacity=15, Oklab distance 0.0086), wins.
 //
-// Construction: since all 25 materials feed the matcher identical input, this
-// ctest samples 5 representative Sponza material names (the top 5 by usage
-// area in the mesh; picked from sponza.mtl for readability) and runs the
-// matcher on each with the same Kd/Ke/d values. This is sufficient per
-// §1.8 — 25 identical inputs produce 25 identical outputs; testing 5 is
-// enough to prove the matcher's opaque-branch behaviour on this Kd, and the
-// stdout serves as the reference record for the Session 37 F3 cross-checks.
+// Assertions (post-(c′) discipline):
+//   1. All 5 top-1 picks are exactly minecraft:snow_block. Any drift →
+//      palette-drift signal per matcher_proposal §6 "tighten not relax".
+//      STOP; do NOT silently update this test.
+//   2. Discriminator (inverted from the pre-(c′) v0.1 assertion): the top-1
+//      must be snow_block (opacity=15, opaque, renders_translucent=false)
+//      and NOT white_stained_glass (opacity=0, renders_translucent=true;
+//      structurally excluded from opaque-branch pool). The 0.0086 Oklab
+//      distance to snow_block reflects the small perceptual cost of the
+//      pool partitioning — accepted per proposal §5.6 as an anticipated
+//      side-effect. If white_stained_glass IS ever picked here again,
+//      that would signal a (c′) regression (curation drift or pool-filter
+//      code change).
 //
-// Assertions (per user's Session 36 prompt task 2):
-//   1. All 5 picks are exactly minecraft:white_stained_glass (§1.8 top-1).
-//      Any drift → palette-drift signal per matcher_proposal §6 "tighten
-//      not relax". STOP; do NOT silently update this test.
-//   2. Session-36 new-discipline: the top-1 must be white_stained_glass
-//      (opacity=0, TRANSPARENT) and NOT snow_block (opacity=15, opaque)
-//      even though snow_block is only 0.0086 Oklab units behind. This
-//      reflects the CURRENT opaque-branch behaviour documented in
-//      OPEN_QUESTIONS.md 2026-07-04 "Near-white opaque-branch matcher-
-//      quality". If a future v0.2 item #4 change resolves that entry, this
-//      ctest is the first to surface the flip (e.g. by tightening opacity
-//      into the opaque-branch score), and the flip should be intentional
-//      + reviewed rather than silent.
-//
-// Prints all 5 top-1 picks to stdout in the established format. The picks
-// are the empirical record for the Session 37 Tier-4's F3 cross-checks
-// (proposal §3.7 conditions vii, viii, xi).
+// Prints all 5 top-1 picks to stdout in the established format.
 
 #include "objtomc/matcher.hpp"
 #include "objtomc/mesh.hpp"
@@ -118,33 +114,28 @@ int main() {
         picks[i] = match_kd_white(matcher, sponza_material_names[i]);
     }
 
-    // ---- Assertion 1: all 5 top-1 picks are white_stained_glass ----
+    // ---- Assertion 1: all 5 top-1 picks are snow_block (post-(c′)) ----
     for (std::size_t i = 0; i < picks.size(); ++i) {
-        if (picks[i] != "minecraft:white_stained_glass") {
+        if (picks[i] != "minecraft:snow_block") {
             fail(sponza_material_names[i] + " picked '" + picks[i] +
-                 "' — expected minecraft:white_stained_glass per §1.8 "
-                 "empirical preview against the 414-entry palette CSV. "
-                 "This is the palette-drift signal per matcher_proposal §6 "
-                 "'tighten not relax'. STOP — do NOT silently update this "
-                 "ctest. Re-run research/scratch/scale/predict.py against "
-                 "the live palette CSV and ask the maintainer whether the "
-                 "new top-1 is a palette regeneration (tighten this ctest) "
-                 "or a matcher regression (investigate).");
+                 "' — expected minecraft:snow_block per Session 46 (c′) "
+                 "counterfactual (translucency_pool_partitioning_proposal "
+                 "§5.2 Tier III). This is the palette-drift signal per "
+                 "matcher_proposal §6 'tighten not relax'. STOP — do NOT "
+                 "silently update. Re-run research/matcher_quality/"
+                 "predict.py against the live palette CSV and ask the "
+                 "maintainer whether the new top-1 is a palette regeneration "
+                 "(curation change) or a matcher regression.");
         }
     }
-    std::printf("  all 5 picks:      minecraft:white_stained_glass (per §1.8 top-1)\n");
+    std::printf("  all 5 picks:      minecraft:snow_block (post-(c′) top-1)\n");
 
-    // ---- Assertion 2: near-white opaque-branch matcher-quality gate ----
-    // For Kd=(1,1,1), the OPEN_QUESTIONS.md 2026-07-04 "Near-white opaque-
-    // branch matcher-quality" entry documents that white_stained_glass
-    // (opacity=0) wins by 0.0086 Oklab units over snow_block (opacity=15).
-    // If a v0.2 item #4 change gives opaque-branch tie-break preference
-    // to fully-opaque blocks (Option A/B/C in that entry), snow_block will
-    // become the top-1 and this ctest will surface the flip.
-    //
-    // Assert that white_stained_glass wins and snow_block does NOT — using
-    // the same input via free-function match() for a second independent
-    // call path (proves it's not a stateful Matcher instance effect).
+    // ---- Assertion 2: (c′) discriminator — snow_block wins over white_stained_glass ----
+    // Under Session 46 (c′), white_stained_glass is renders_translucent=true
+    // → structurally excluded from the opaque-branch pool. snow_block
+    // (opacity=15, renders_translucent=false, Oklab distance 0.0086) is the
+    // perceptually next-nearest opaque neighbour and now wins. Inverse of
+    // the pre-(c′) v0.1 assertion.
     msh::Material sponza_kd{};
     sponza_kd.name = "sponza_uniform";
     sponza_kd.kd   = {1.0f, 1.0f, 1.0f};
@@ -152,29 +143,28 @@ int main() {
     sponza_kd.d    = 1.0f;
     const auto discriminator_pick = mat::match(sponza_kd, db).name;
 
-    if (discriminator_pick == "minecraft:snow_block") {
-        fail("near-white opaque-branch matcher-quality assertion FIRED: "
-             "sponza_uniform Kd=(1,1,1) picked '" + discriminator_pick +
-             "' instead of the historical minecraft:white_stained_glass. "
-             "This is expected IF a v0.2 item #4 change resolved the "
-             "OPEN_QUESTIONS.md 2026-07-04 'Near-white opaque-branch "
-             "matcher-quality' entry (opacity-preferring tie-break for "
-             "opaque branch). If so, update this ctest + the OPEN_QUESTIONS "
-             "entry status. If not, investigate as a matcher regression.");
+    if (discriminator_pick == "minecraft:white_stained_glass") {
+        fail("(c′) regression FIRED: sponza_uniform Kd=(1,1,1) picked '" +
+             discriminator_pick + "' — Session 46 (c′) two-pool partition "
+             "should have excluded white_stained_glass (renders_translucent="
+             "true) from the opaque-branch pool. Either the palette CSV's "
+             "renders_translucent curation drifted or the matcher pool-"
+             "filter code was reverted. Investigate BEFORE touching this "
+             "ctest.");
     }
-    if (discriminator_pick != "minecraft:white_stained_glass") {
+    if (discriminator_pick != "minecraft:snow_block") {
         fail("near-white discriminator picked '" + discriminator_pick +
-             "' — expected minecraft:white_stained_glass per §1.8. "
-             "Neither the historical top-1 nor the OPEN_QUESTIONS-flagged "
-             "snow_block runner-up; this is an unexpected pick that "
-             "warrants investigation before any test-code change.");
+             "' — expected minecraft:snow_block per (c′) §5.2 Tier III "
+             "counterfactual. Neither the pre-(c′) v0.1 top-1 nor the "
+             "expected post-(c′) top-1; investigate before any test change.");
     }
-    std::printf("  discriminator:    white_stained_glass wins over snow_block "
-                "(OPEN_QUESTIONS 2026-07-04 'Near-white opaque-branch "
-                "matcher-quality' currently unresolved; opacity=0 wins over "
-                "opacity=15 by 0.0086 Oklab units)\n");
+    std::printf("  discriminator:    snow_block wins over white_stained_glass "
+                "(Session 46 (c′) two-pool partition resolves OQ 2026-07-04 "
+                "'Near-white opaque-branch matcher-quality' structurally; "
+                "opacity=15 opaque neighbour picked instead of opacity=0 "
+                "renders_translucent=true block)\n");
 
     std::printf("PASS: matcher_sponza_smoke "
-                "(5/5 samples pick white_stained_glass; discriminator holds)\n");
+                "(5/5 samples pick snow_block post-(c′); discriminator holds)\n");
     return 0;
 }

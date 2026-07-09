@@ -241,11 +241,12 @@ std::string parse_version_json(const std::string& content) {
 //
 // Header lines start with '#'. Exactly one header line must declare
 //   # mc_version: <ver>
-// Body rows are 8 comma-separated columns:
-//   name, opacity, luminance, r, g, b, is_full_cube, texture_path
+// Body rows are 9 comma-separated columns (schema_version 2, Session 46 c′):
+//   name, opacity, luminance, r, g, b, is_full_cube, texture_path,
+//   renders_translucent
 // Numeric ranges: opacity, luminance in [0, 15]; r, g, b in [0, 255];
-// is_full_cube in {0, 1}. Blank lines are skipped. Leading/trailing
-// whitespace per field is trimmed.
+// is_full_cube in {0, 1}; renders_translucent in {true, false, 1, 0}. Blank
+// lines are skipped. Leading/trailing whitespace per field is trimmed.
 // ---------------------------------------------------------------------------
 struct CsvRow {
     std::string  name;
@@ -256,6 +257,7 @@ struct CsvRow {
     int          b;
     bool         is_full_cube;
     std::string  texture_path;
+    bool         renders_translucent;
 };
 
 struct CsvParseResult {
@@ -341,10 +343,12 @@ CsvParseResult parse_csv(const std::string& content,
             fields.emplace_back(trim(line.substr(fpos, comma - fpos)));
             fpos = comma + 1;
         }
-        if (fields.size() != 8) {
+        if (fields.size() != 9) {
             throw palette_error(
                 "palette: CSV row " + std::to_string(line_no) +
-                ": expected 8 columns, got " + std::to_string(fields.size()));
+                ": expected 9 columns, got " + std::to_string(fields.size()) +
+                " (schema_version 2 adds renders_translucent as 9th column; "
+                "see research/translucency_pool_partitioning_proposal.md §3)");
         }
 
         CsvRow row;
@@ -361,6 +365,20 @@ CsvParseResult parse_csv(const std::string& content,
         const int fc     = parse_int_in_range(fields[6], 0, 1,   "is_full_cube", line_no);
         row.is_full_cube = (fc == 1);
         row.texture_path = fields[7];
+
+        // renders_translucent — accepts {"true", "false", "1", "0"} case-sensitive.
+        const std::string& rt = fields[8];
+        if (rt == "true" || rt == "1") {
+            row.renders_translucent = true;
+        } else if (rt == "false" || rt == "0") {
+            row.renders_translucent = false;
+        } else {
+            throw palette_error(
+                "palette: CSV row " + std::to_string(line_no) +
+                ": invalid renders_translucent value '" + rt +
+                "' (expected 'true', 'false', '1', or '0')");
+        }
+
         result.rows.push_back(std::move(row));
     }
 
@@ -523,10 +541,11 @@ PaletteDB load_palette_csv(const std::filesystem::path& csv_path,
             srgb_to_linear(static_cast<float>(row.g) / 255.0f),
             srgb_to_linear(static_cast<float>(row.b) / 255.0f),
         };
-        e.opacity      = static_cast<std::uint8_t>(row.opacity);
-        e.luminance    = static_cast<std::uint8_t>(row.luminance);
-        e.is_full_cube = row.is_full_cube;
-        e.texture_path = row.texture_path;
+        e.opacity             = static_cast<std::uint8_t>(row.opacity);
+        e.luminance           = static_cast<std::uint8_t>(row.luminance);
+        e.is_full_cube        = row.is_full_cube;
+        e.texture_path        = row.texture_path;
+        e.renders_translucent = row.renders_translucent;
         entries.push_back(std::move(e));
     }
 

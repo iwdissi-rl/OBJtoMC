@@ -264,9 +264,15 @@ void Matcher::match_batch(std::span<const mesh::Material> in,
         for (auto it = entries_begin; it != db.end(); ++it, ++idx) {
             const palette::BlockPaletteEntry& entry = *it;
 
-            // Pool filter (§3.5 / §3.6 / §3.7).
-            if (branch == Branch::Emissive && entry.luminance == 0) continue;
-            if (branch == Branch::Transparent && entry.opacity >= 15) continue;
+            // Pool filter (§3.5 emissive unchanged; §3.6 transparent + §3.7
+            // opaque replaced by (c′) two-pool partition per
+            // research/translucency_pool_partitioning_proposal.md §4).
+            //   emissive     : entry.luminance > 0                       (unchanged)
+            //   transparent  : entry.renders_translucent == true         (Session 46 c′)
+            //   opaque       : entry.renders_translucent == false        (Session 46 c′)
+            if (branch == Branch::Emissive    && entry.luminance == 0)         continue;
+            if (branch == Branch::Transparent && !entry.renders_translucent)   continue;
+            if (branch == Branch::Opaque      && entry.renders_translucent)    continue;
 
             const float perceptual = oklab_distance(target_oklab, cached_[idx]);
             float score = perceptual;

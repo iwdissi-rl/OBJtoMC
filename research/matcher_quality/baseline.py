@@ -51,6 +51,22 @@ from predict import (  # noqa: E402
     BRANCH_EMISSIVE, BRANCH_TRANSPARENT, BRANCH_OPAQUE, branch_for,
 )
 
+# ---------------------------------------------------------------------------
+# Session 46 (c′) locked Phase-4T + corrected Phase-3T′ metric definition.
+#
+# Phase-3T (original filterLight ruler, Session 44) is retired. Session 44
+# numbers stay in DECISIONS as historical record but no NEW metric line uses
+# the filterLight ruler going forward (per translucency_pool_partitioning_
+# proposal.md §5.3 re-baseline protocol + §5.4 metric definition change).
+#
+# Phase-4T-preliminary (used the provisional hand-audit CSV) is superseded
+# by Phase-4T-locked (uses the authoritative renders_translucent column in
+# data/block_palette_db.csv).
+#
+# Both Phase-3T′ (comparison-only, keeps luminance_mismatch retained) and
+# Phase-4T (locked, adds translucent_mismatch on renders_translucent ruler)
+# are emitted here.
+# ---------------------------------------------------------------------------
 PROJECT_ROOT = os.environ.get("OBJTOMC_ROOT", "/path/to/OBJtoMC")
 SPONZA_CSV   = os.path.join(PROJECT_ROOT, "research", "matcher_quality",
                             "sponza_texture_avg_colours.csv")
@@ -95,9 +111,14 @@ def load_sponza_csv(path: str = SPONZA_CSV) -> List[Material]:
 
 def load_translucent_provisional(path: str = TRANSLUCENT_CSV
                                  ) -> dict:
-    """Return {block_name: bool_renders_translucent}. Blocks not in the
-    file are assumed renders_translucent = false (opacity=15 blocks OR
-    palette entries the hand-audit didn't cover).
+    """Return {block_name: bool_renders_translucent} from the Session 44
+    provisional hand-audit CSV. HISTORICAL — retained only for Session 44
+    baseline reproduction. Session 46 (c′) makes the palette CSV's
+    renders_translucent column authoritative; see palette_renders_
+    translucent_map() below.
+
+    Blocks not in the file are assumed renders_translucent = false
+    (opacity=15 blocks OR palette entries the hand-audit didn't cover).
     """
     result: dict = {}
     with open(path) as f:
@@ -108,6 +129,12 @@ def load_translucent_provisional(path: str = TRANSLUCENT_CSV
             val  = row[1].strip().lower()
             result[name] = (val == "true")
     return result
+
+
+def palette_renders_translucent_map(palette: List[PaletteEntry]) -> dict:
+    """Return {block_name: bool_renders_translucent} from the authoritative
+    palette CSV column (Session 46 c′ schema_version 2)."""
+    return {e.name: e.renders_translucent for e in palette}
 
 
 # ---------------------------------------------------------------------------
@@ -141,14 +168,20 @@ def luminance_mismatch_penalty(m: Material, b: PaletteEntry) -> float:
 
 def translucent_mismatch_penalty(m: Material, b: PaletteEntry,
                                  renders_translucent: dict) -> float:
-    """§2.1: 1.0 iff a solid source (d>=0.5) picked a block whose
-    renders_translucent flag is true; else 0.0.
+    """Phase-4T (locked per Session 46 c′): 1.0 iff (m.d >= 0.5 AND
+    b.renders_translucent) OR (m.d < 0.5 AND NOT b.renders_translucent);
+    else 0.0. Two-directional per proposal §5.4.
 
-    Under Phase-3T this term is IDENTICALLY ZERO (translucent-mismatch
-    is not evaluated). Under Phase-4T-preliminary it uses the provisional
-    hand-audit CSV.
+    Under Phase-3T (original, retired) this term is IDENTICALLY ZERO
+    (translucent_mismatch was not evaluated). Under Phase-4T-preliminary
+    (retired) it was one-directional and used the provisional hand-audit.
+    Under Phase-4T-locked it is two-directional and uses the authoritative
+    palette CSV column.
     """
-    if m.d >= 0.5 and renders_translucent.get(b.name, False):
+    is_translucent = renders_translucent.get(b.name, False)
+    if m.d >= 0.5 and is_translucent:
+        return 1.0
+    if m.d < 0.5 and not is_translucent:
         return 1.0
     return 0.0
 
@@ -157,17 +190,41 @@ def score_pair(m: Material, b: PaletteEntry,
                renders_translucent: Optional[dict],
                phase: str) -> Tuple[float, dict]:
     """Return (score, per-term-hit-flags) for the (m, b) pair under the
-    given phase ("phase3t" or "phase4t_prelim").
+    given phase.
+
+    Supported phases:
+      "phase3t"          — original Session 44 (filterLight ruler; opacity
+                           + luminance terms; translucent term = 0).
+                           Retained for historical replay of Session 44
+                           numbers against unchanged code paths.
+      "phase3t_prime"    — corrected Session 46+ (drops opacity term; keeps
+                           luminance term; translucent term = 0). Used only
+                           for direct pre/post-(c′) comparison alongside
+                           phase4t_locked; new baseline numbers use
+                           phase4t_locked.
+      "phase4t_locked"   — Session 46 (c′) locked (perceptual + luminance
+                           + translucent, two-directional, using authoritative
+                           palette CSV column via renders_translucent map).
+                           GOING-FORWARD standard ruler.
+      "phase4t_prelim"   — RETIRED (Session 44 provisional hand-audit,
+                           one-directional). Kept only for reproducing
+                           Session 44's DECISIONS record.
     """
     branch = branch_for(m)
     target = material_color_to_oklab(m.ke if branch == BRANCH_EMISSIVE else m.kd)
     perceptual = oklab_distance(target, b.oklab)
 
-    op_pen  = opacity_mismatch_penalty(m, b)
     lum_pen = luminance_mismatch_penalty(m, b)
 
+    # opacity term fires only under phase3t (retired, historical replay).
+    op_pen = 0.0
+    if phase == "phase3t":
+        op_pen = opacity_mismatch_penalty(m, b)
+
+    # translucent term fires under phase4t_prelim (historical) + phase4t_locked
+    # (going-forward). phase3t + phase3t_prime keep it at zero.
     trans_pen = 0.0
-    if phase == "phase4t_prelim" and renders_translucent is not None:
+    if phase in ("phase4t_prelim", "phase4t_locked") and renders_translucent is not None:
         trans_pen = translucent_mismatch_penalty(m, b, renders_translucent)
 
     score = (perceptual
@@ -240,24 +297,23 @@ def format_tier(t: TierResult, phase: str) -> str:
     lines = [f"{t.tier_name} ({phase}): n={t.n}"]
     lines.append(f"  mean MatcherQualityScore      : {t.mean_score:.4f}")
     lines.append(f"  mean perceptual (Oklab)       : {t.perceptual_mean:.4f}")
-    lines.append(f"  opacity_mismatch hits         : {t.opacity_hits}"
-                 f"  ({100.0 * t.opacity_hits / t.n:.1f}% of corpus)")
+    if phase == "phase3t":
+        lines.append(f"  opacity_mismatch hits         : {t.opacity_hits}"
+                     f"  ({100.0 * t.opacity_hits / t.n:.1f}% of corpus)")
     lines.append(f"  luminance_mismatch full hits  : {t.luminance_hits}"
                  f"  ({100.0 * t.luminance_hits / t.n:.1f}% of corpus)")
     lines.append(f"  luminance_mismatch half hits  : {t.luminance_half_hits}"
                  f"  ({100.0 * t.luminance_half_hits / t.n:.1f}% of corpus)")
-    if phase == "phase4t_prelim":
+    if phase in ("phase4t_prelim", "phase4t_locked"):
         lines.append(f"  translucent_mismatch hits     : {t.translucent_hits}"
                      f"  ({100.0 * t.translucent_hits / t.n:.1f}% of corpus)")
-    else:
-        lines.append(f"  translucent_mismatch hits     : "
-                     f"n/a under Phase-3T")
     return "\n".join(lines)
 
 
 def main() -> int:
     print("=" * 70)
-    print("BASELINE (Session 44) — matcher_quality_proposal §2 metric")
+    print("BASELINE (Session 46 (c′) locked) — matcher_quality_proposal §2.1")
+    print("+ translucency_pool_partitioning_proposal §5.4 metric refinement")
     print("=" * 70)
     print(f"FROZEN weights (§2.4.1): "
           f"w_opacity={W_OPACITY}  w_luminance={W_LUMINANCE}  "
@@ -266,72 +322,79 @@ def main() -> int:
 
     palette = load_palette()
     print(f"Loaded {len(palette)} full-cube palette entries.")
+    rt_map_authoritative = palette_renders_translucent_map(palette)
+    n_rt_true = sum(1 for v in rt_map_authoritative.values() if v)
+    print(f"  renders_translucent=true (authoritative, Session 46 c′): {n_rt_true}")
+    print(f"  renders_translucent=false: {len(palette) - n_rt_true}")
 
     tier1_mats = list(CANONICALS)
     tier2_mats = build_synthetic_batch()
     tier3_mats = load_sponza_csv()
-    trans_map  = load_translucent_provisional()
     print(f"Tier I  : {len(tier1_mats)} canonicals")
     print(f"Tier II : {len(tier2_mats)} synthetic (1728 opaque + 200 emit + 200 trans)")
     print(f"Tier III: {len(tier3_mats)} Sponza per-texture avg colours")
-    print(f"Provisional renders_translucent audit: {len(trans_map)} entries")
     print()
 
     all_tiers = []
+
     print("-" * 70)
-    print("Phase-3T (perceptual + opacity + luminance)")
+    print("Phase-3T′ (corrected, Session 46 c′): perceptual + luminance only.")
+    print("Dropped opacity_mismatch (was filterLight ruler, retired per §5.4).")
+    print("Reference-only for pre/post-(c′) comparison; going-forward is")
+    print("phase4t_locked.")
     print("-" * 70)
-    for phase in ["phase3t"]:
+    for phase in ["phase3t_prime"]:
         for name, mats, record in (("Tier I", tier1_mats, True),
                                    ("Tier II", tier2_mats, False),
                                    ("Tier III", tier3_mats, True)):
-            t = evaluate_tier(name, mats, palette, trans_map, phase, record)
+            t = evaluate_tier(name, mats, palette,
+                              rt_map_authoritative, phase, record)
             print(format_tier(t, phase))
             print()
             all_tiers.append((phase, t))
 
     print("-" * 70)
-    print("Phase-4T-preliminary (adds translucent term, using PROVISIONAL "
-          "hand-audit)")
+    print("Phase-4T-locked (Session 46 c′ LOCKED): perceptual + luminance +")
+    print("translucent_mismatch (two-directional, using authoritative palette")
+    print("CSV column). GOING-FORWARD standard ruler.")
     print("-" * 70)
-    for phase in ["phase4t_prelim"]:
+    for phase in ["phase4t_locked"]:
         for name, mats, record in (("Tier I", tier1_mats, True),
                                    ("Tier II", tier2_mats, False),
                                    ("Tier III", tier3_mats, True)):
-            t = evaluate_tier(name, mats, palette, trans_map, phase, record)
+            t = evaluate_tier(name, mats, palette,
+                              rt_map_authoritative, phase, record)
             print(format_tier(t, phase))
             print()
             all_tiers.append((phase, t))
 
-    # Combined mean across all three tiers per phase (unweighted mean of the
-    # per-tier means — reports the "overall" score without weighting one
-    # tier by its size).
+    # Combined mean per phase (unweighted mean of per-tier means).
     print("-" * 70)
     print("Combined summary (mean of per-tier means, unweighted)")
     print("-" * 70)
-    for phase in ["phase3t", "phase4t_prelim"]:
+    for phase in ["phase3t_prime", "phase4t_locked"]:
         tiers = [t for p, t in all_tiers if p == phase]
         combined = sum(t.mean_score for t in tiers) / len(tiers)
-        print(f"  {phase:14s} combined mean MatcherQualityScore: {combined:.4f}")
+        print(f"  {phase:16s} combined mean MatcherQualityScore: {combined:.4f}")
     print()
 
-    # Canonical picks — needed for the evolution table baseline column.
+    # Canonical picks under phase4t_locked — for evolution table post-(c′)
+    # column fill (proposal §3.6 discipline).
     print("-" * 70)
-    print("Canonical pick evolution table — baseline column (fills the "
-          "Session 43.1 seeded row)")
+    print("Canonical pick evolution table — post-(c′) [merged a+c] column")
     print("-" * 70)
     for phase, t in all_tiers:
-        if t.tier_name != "Tier I" or phase != "phase3t":
+        if t.tier_name != "Tier I" or phase != "phase4t_locked":
             continue
         for mat_name, pick_name in t.top1:
             print(f"  {mat_name:20s} -> {pick_name}")
     print()
 
-    # Tier III picks — help interpret the Sponza Tier III result.
+    # Tier III picks — help interpret Sponza Tier III result.
     for phase, t in all_tiers:
-        if t.tier_name != "Tier III" or phase != "phase3t":
+        if t.tier_name != "Tier III" or phase != "phase4t_locked":
             continue
-        print("Tier III Sponza picks (baseline v0.1 matcher):")
+        print("Tier III Sponza picks (post-(c′) matcher):")
         for mat_name, pick_name in t.top1:
             print(f"  {mat_name:35s} -> {pick_name}")
         print()

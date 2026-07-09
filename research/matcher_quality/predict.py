@@ -119,13 +119,14 @@ def oklab_distance(p: Tuple[float, float, float],
 @dataclass
 class PaletteEntry:
     name: str
-    opacity: int      # 0..15
-    luminance: int    # 0..15
+    opacity: int      # 0..15 — MC filterLight (light propagation, NOT visual translucency)
+    luminance: int    # 0..15 — MC emitLight
     r: int            # sRGB uint8
     g: int
     b: int
     is_full_cube: bool
     texture_path: str
+    renders_translucent: bool = False  # Session 46 (c′): visual-translucency ruler
     oklab: Tuple[float, float, float] = field(default=(0.0, 0.0, 0.0))
 
 
@@ -133,7 +134,8 @@ def load_palette(path: str = PALETTE_CSV) -> List[PaletteEntry]:
     """Load `data/block_palette_db.csv`, filter to full-cube, pre-convert Oklab.
 
     Mirrors `src/palette.cpp`'s CSV load + gamma-decode + `Matcher` sidecar
-    Oklab pre-conversion.
+    Oklab pre-conversion. Session 46 schema_version 2 adds `renders_translucent`
+    as the 9th column.
     """
     entries: List[PaletteEntry] = []
     with open(path) as f:
@@ -147,6 +149,8 @@ def load_palette(path: str = PALETTE_CSV) -> List[PaletteEntry]:
                 r = int(row[3]); g = int(row[4]); b = int(row[5])
                 is_full_cube = row[6] in ("1", "true", "True")
                 texture_path = row[7] if len(row) > 7 else ""
+                rt_str = row[8].strip().lower() if len(row) > 8 else "false"
+                renders_translucent = rt_str in ("1", "true")
             except (IndexError, ValueError):
                 continue
             if not is_full_cube:
@@ -158,7 +162,9 @@ def load_palette(path: str = PALETTE_CSV) -> List[PaletteEntry]:
             entries.append(PaletteEntry(
                 name=name, opacity=opacity, luminance=luminance,
                 r=r, g=g, b=b, is_full_cube=is_full_cube,
-                texture_path=texture_path, oklab=ok,
+                texture_path=texture_path,
+                renders_translucent=renders_translucent,
+                oklab=ok,
             ))
     return entries
 
@@ -192,11 +198,15 @@ def score_and_key(m: Material, e: PaletteEntry,
                   branch: str, target_ok: Tuple[float, float, float]
                   ) -> Optional[Tuple[float, int, int, str]]:
     """Return the TieBreakKey tuple for (m, e) or None if e is filtered out
-    of this branch's pool. Mirrors src/matcher.cpp lines 264-303 exactly.
+    of this branch's pool. Mirrors src/matcher.cpp lines 264-303 exactly,
+    including the Session 46 (c′) two-pool partition on transparent + opaque
+    branches per research/translucency_pool_partitioning_proposal.md §4.
     """
-    # Pool filter (matcher §3.5 + §3.6, §3.7 has no pool filter).
-    if branch == BRANCH_EMISSIVE    and e.luminance == 0: return None
-    if branch == BRANCH_TRANSPARENT and e.opacity   >= 15: return None
+    # Pool filter (emissive unchanged; transparent + opaque partitioned by
+    # renders_translucent per Session 46 c′).
+    if branch == BRANCH_EMISSIVE    and e.luminance == 0:            return None
+    if branch == BRANCH_TRANSPARENT and not e.renders_translucent:    return None
+    if branch == BRANCH_OPAQUE      and e.renders_translucent:       return None
 
     perceptual = oklab_distance(target_ok, e.oklab)
     score = perceptual

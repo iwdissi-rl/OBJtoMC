@@ -3,7 +3,7 @@
 # extractor_commit: TEST_FIXTURE_NOT_REAL
 # extractor_pillow_version: TEST_FIXTURE_NOT_REAL
 # generated: 2026-06-20T00:00:00Z
-# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path
+# columns: name,opacity,luminance,r,g,b,is_full_cube,texture_path,renders_translucent
 #
 # TEST FIXTURE for the palette layer's five tests. This is NOT the real
 # data/block_palette_db.csv; the real CSV is produced by
@@ -17,24 +17,24 @@
 # oak_log, sea_lantern, glowstone, jack_o_lantern, obsidian, redstone_block,
 # diamond_block, gold_block, iron_block, glass, ice, slime_block,
 # honey_block, white_concrete, red_concrete, blue_concrete.
-minecraft:stone,15,0,120,120,120,1,
-minecraft:grass_block,15,0,120,160,90,1,
-minecraft:dirt,15,0,134,96,67,1,
-minecraft:cobblestone,15,0,125,125,125,1,
-minecraft:oak_planks,15,0,162,130,78,1,
-minecraft:oak_log,15,0,107,84,52,1,
-minecraft:sea_lantern,15,15,200,210,200,1,
-minecraft:glowstone,15,15,210,180,90,1,
-minecraft:jack_o_lantern,15,15,200,130,40,1,
-minecraft:obsidian,15,0,40,30,60,1,
-minecraft:redstone_block,15,0,175,30,30,1,
-minecraft:diamond_block,15,0,110,225,225,1,
-minecraft:gold_block,15,0,240,210,80,1,
-minecraft:iron_block,15,0,220,220,220,1,
-minecraft:glass,0,0,200,210,220,1,
-minecraft:ice,1,0,160,180,230,1,
-minecraft:slime_block,1,0,110,180,110,1,
-minecraft:honey_block,1,0,230,170,40,1,
-minecraft:white_concrete,15,0,210,215,215,1,
-minecraft:red_concrete,15,0,150,40,40,1,
-minecraft:blue_concrete,15,0,40,50,150,1,
+minecraft:stone,15,0,120,120,120,1,,false
+minecraft:grass_block,15,0,120,160,90,1,,false
+minecraft:dirt,15,0,134,96,67,1,,false
+minecraft:cobblestone,15,0,125,125,125,1,,false
+minecraft:oak_planks,15,0,162,130,78,1,,false
+minecraft:oak_log,15,0,107,84,52,1,,false
+minecraft:sea_lantern,15,15,200,210,200,1,,false
+minecraft:glowstone,15,15,210,180,90,1,,false
+minecraft:jack_o_lantern,15,15,200,130,40,1,,false
+minecraft:obsidian,15,0,40,30,60,1,,false
+minecraft:redstone_block,15,0,175,30,30,1,,false
+minecraft:diamond_block,15,0,110,225,225,1,,false
+minecraft:gold_block,15,0,240,210,80,1,,false
+minecraft:iron_block,15,0,220,220,220,1,,false
+minecraft:glass,0,0,200,210,220,1,,true
+minecraft:ice,1,0,160,180,230,1,,true
+minecraft:slime_block,1,0,110,180,110,1,,true
+minecraft:honey_block,1,0,230,170,40,1,,true
+minecraft:white_concrete,15,0,210,215,215,1,,false
+minecraft:red_concrete,15,0,150,40,40,1,,false
+minecraft:blue_concrete,15,0,40,50,150,1,,false

@@ -35,13 +35,23 @@ inline bool operator!=(RGB a, RGB b) noexcept { return !(a == b); }
 //                    coverage (oak_stairs[facing=north,...] etc.)
 //   avg_color_srgb   diffuse-texture average colour in sRGB (0..255 per channel)
 //   avg_color_linear same colour gamma-decoded to linear-RGB float [0, 1]
-//   opacity          MC's filterLight, 0..15 (15 = blocks all light)
-//   luminance        MC's emitLight,   0..15 (0 = emits no light)
-//   is_full_cube     true iff the block occupies a full 1x1x1 voxel
-//                    (slabs/stairs/fences are NOT full cubes; v0.1 matcher
-//                    restricts to is_full_cube == true)
-//   texture_path     relative path to the principal diffuse texture
-//                    (e.g. "block/stone.png"); empty if not recorded
+//   opacity              MC's filterLight, 0..15 (15 = blocks all light).
+//                        Light-propagation semantic, NOT visual translucency.
+//   luminance            MC's emitLight,   0..15 (0 = emits no light)
+//   is_full_cube         true iff the block occupies a full 1x1x1 voxel
+//                        (slabs/stairs/fences are NOT full cubes; v0.1 matcher
+//                        restricts to is_full_cube == true)
+//   texture_path         relative path to the principal diffuse texture
+//                        (e.g. "block/stone.png"); empty if not recorded
+//   renders_translucent  Session 46 (c′): does this block read as a see-through
+//                        surface in vanilla MC? Distinct from opacity — e.g.
+//                        tinted_glass has opacity=15 (blocks all light) but
+//                        renders translucent; leaves have opacity=1 (filter
+//                        1 light level) but render as cutout foliage that
+//                        reads solid at distance. Consumed by the matcher's
+//                        two-pool partition per
+//                        research/translucency_pool_partitioning_proposal.md
+//                        §4.1 + §4.2.
 // ---------------------------------------------------------------------------
 struct BlockPaletteEntry {
     std::string                         name;
@@ -52,6 +62,7 @@ struct BlockPaletteEntry {
     std::uint8_t                        luminance;
     bool                                is_full_cube;
     std::string                         texture_path;
+    bool                                renders_translucent;
 };
 
 // ---------------------------------------------------------------------------
