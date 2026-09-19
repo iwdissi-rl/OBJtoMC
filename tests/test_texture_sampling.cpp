@@ -3,7 +3,8 @@
 // Exercises the texture layer directly against the committed 2×2 checker
 // fixture (tests/fixtures/texture/checker.png — top row green|white,
 // bottom row red|blue, hand-generated RGB8 PNG):
-//   1. TextureCache::load decodes it to a 2×2 RGB8 Image with exact texels.
+//   1. TextureCache::load decodes it to a 2×2 RGBA8 Image with exact
+//      texels (alpha-less source → alpha bytes all 255 — Session 52).
 //   2. sample_nearest quadrant mapping honours the V flip (v=0 → image
 //      BOTTOM row per OBJ's bottom-left UV origin).
 //   3. Repeat wrap: u/v shifted by whole turns (±1, ±2) resample the same
@@ -11,6 +12,8 @@
 //   4. Missing file → nullptr (flat-Kd fallback contract), and the failure
 //      is cached (second load also nullptr).
 //   5. Cache identity: same path twice → same Image pointer.
+//   6. sample_alpha returns exactly 1.0 for the alpha-less source at every
+//      quadrant (Session 52 contract).
 
 #include "objtomc/texture.hpp"
 
@@ -62,18 +65,19 @@ int main(int argc, char** argv) {
         fail("expected 2x2, got " + std::to_string(img->width) + "x" +
              std::to_string(img->height));
     }
-    if (img->rgb.size() != 12) {
-        fail("expected 12 bytes RGB, got " + std::to_string(img->rgb.size()));
+    if (img->rgba.size() != 16) {
+        fail("expected 16 bytes RGBA, got " + std::to_string(img->rgba.size()));
     }
-    // Row 0 (top): green, white. Row 1 (bottom): red, blue.
-    const std::array<std::uint8_t, 12> want_bytes = {
-        0, 255, 0,  255, 255, 255,
-        255, 0, 0,  0, 0, 255,
+    // Row 0 (top): green, white. Row 1 (bottom): red, blue. Alpha-less
+    // source expands with alpha = 255 (Session 52).
+    const std::array<std::uint8_t, 16> want_bytes = {
+        0, 255, 0, 255,  255, 255, 255, 255,
+        255, 0, 0, 255,  0, 0, 255, 255,
     };
-    for (std::size_t i = 0; i < 12; ++i) {
-        if (img->rgb[i] != want_bytes[i]) {
+    for (std::size_t i = 0; i < 16; ++i) {
+        if (img->rgba[i] != want_bytes[i]) {
             fail("texel byte " + std::to_string(i) + " got " +
-                 std::to_string(img->rgb[i]) + " want " +
+                 std::to_string(img->rgba[i]) + " want " +
                  std::to_string(want_bytes[i]));
         }
     }
@@ -108,7 +112,19 @@ int main(int argc, char** argv) {
     // --- 5. cache identity --------------------------------------------------
     if (cache.load(png_path) != img) fail("second load returned different pointer");
 
+    // --- 6. sample_alpha on an alpha-less source = exactly 1.0 --------------
+    for (const float u : {0.25f, 0.75f}) {
+        for (const float v : {0.25f, 0.75f}) {
+            const float a = tex::sample_alpha(*img, u, v);
+            if (a != 1.0f) {
+                fail("sample_alpha(u=" + std::to_string(u) + ", v=" +
+                     std::to_string(v) + ") = " + std::to_string(a) +
+                     ", expected exactly 1.0 for RGB source");
+            }
+        }
+    }
+
     std::cout << "PASS: texture_sampling (decode, quadrants, V-flip, wrap, "
-                 "missing-file fallback, cache identity)\n";
+                 "missing-file fallback, cache identity, alpha=1)\n";
     return 0;
 }

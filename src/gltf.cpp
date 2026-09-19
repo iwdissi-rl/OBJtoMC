@@ -178,6 +178,14 @@ void extract_material(const cgltf_material& src, std::size_t index,
     // BLEND → translucent with the base colour's alpha. MASK is a binary
     // cutoff (block exists or not) and OPAQUE is opaque: both d = 1.
     out.d = (src.alpha_mode == cgltf_alpha_mode_blend) ? base_alpha : 1.0f;
+
+    // BLEND + baseColorTexture: the effective alpha is factor × texel.a
+    // (Session 52). Sketchfab BLEND exports usually omit baseColorFactor
+    // (alpha defaults 1) and put the transparency in the texture, so d
+    // alone would be opaque. Flag it; orchestrate multiplies per voxel.
+    out.d_from_map_alpha =
+        src.alpha_mode == cgltf_alpha_mode_blend &&
+        (!out.map_kd.empty() || !out.map_kd_bytes.empty());
 }
 
 void append_primitive(const cgltf_data& data, const cgltf_primitive& prim,

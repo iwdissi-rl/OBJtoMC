@@ -32,14 +32,15 @@ namespace objtomc::texture {
 // applies downstream, exactly as it does for flat Kd values.
 // ---------------------------------------------------------------------------
 
-// Decoded image, always RGB8 (alpha and grey channels expanded/dropped by
-// the decoder at load time). Rows are stored top-first (row 0 = image top),
-// as decoded — the V flip for OBJ's bottom-left UV origin happens in
-// sample_nearest, not at decode time.
+// Decoded image, always RGBA8 (grey/RGB sources expand with alpha = 255 at
+// load time — Session 52 keeps the alpha channel for glTF BLEND materials
+// whose transparency lives in baseColorTexture.a). Rows are stored
+// top-first (row 0 = image top), as decoded — the V flip for OBJ's
+// bottom-left UV origin happens in sample_nearest, not at decode time.
 struct Image {
     int                        width  = 0;
     int                        height = 0;
-    std::vector<std::uint8_t>  rgb;         // size = width * height * 3, row-major, top row first
+    std::vector<std::uint8_t>  rgba;        // size = width * height * 4, row-major, top row first
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,15 @@ struct Image {
 // returned by TextureCache::load).
 // ---------------------------------------------------------------------------
 std::array<float, 3> sample_nearest(const Image& img, float u, float v) noexcept;
+
+// ---------------------------------------------------------------------------
+// sample_alpha — the alpha channel of the same nearest texel sample_nearest
+// would pick (identical wrap / V-flip / clamp arithmetic). Returns LINEAR
+// alpha in [0, 1] — the sRGB transfer never applies to alpha, so the value
+// drops into Material.d without conversion. Alpha-less sources decode with
+// alpha = 255, so this returns exactly 1.0 for them. (Session 52.)
+// ---------------------------------------------------------------------------
+float sample_alpha(const Image& img, float u, float v) noexcept;
 
 // ---------------------------------------------------------------------------
 // TextureCache — per-path decode cache.

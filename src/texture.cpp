@@ -34,7 +34,11 @@
 
 namespace objtomc::texture {
 
-std::array<float, 3> sample_nearest(const Image& img, float u, float v) noexcept {
+namespace {
+
+// Nearest-texel byte offset shared by sample_nearest and sample_alpha so
+// both channels always come from the SAME texel.
+std::size_t texel_offset(const Image& img, float u, float v) noexcept {
     // Repeat wrap: floor-subtract maps any finite float into [0, 1).
     const float uw = u - std::floor(u);
     const float vw = v - std::floor(v);
@@ -48,12 +52,21 @@ std::array<float, 3> sample_nearest(const Image& img, float u, float v) noexcept
     if (x > img.width  - 1) x = img.width  - 1;
     if (y > img.height - 1) y = img.height - 1;
 
-    const std::size_t i =
-        (static_cast<std::size_t>(y) * static_cast<std::size_t>(img.width) +
-         static_cast<std::size_t>(x)) * 3u;
-    return {static_cast<float>(img.rgb[i + 0]) / 255.0f,
-            static_cast<float>(img.rgb[i + 1]) / 255.0f,
-            static_cast<float>(img.rgb[i + 2]) / 255.0f};
+    return (static_cast<std::size_t>(y) * static_cast<std::size_t>(img.width) +
+            static_cast<std::size_t>(x)) * 4u;
+}
+
+}  // namespace
+
+std::array<float, 3> sample_nearest(const Image& img, float u, float v) noexcept {
+    const std::size_t i = texel_offset(img, u, v);
+    return {static_cast<float>(img.rgba[i + 0]) / 255.0f,
+            static_cast<float>(img.rgba[i + 1]) / 255.0f,
+            static_cast<float>(img.rgba[i + 2]) / 255.0f};
+}
+
+float sample_alpha(const Image& img, float u, float v) noexcept {
+    return static_cast<float>(img.rgba[texel_offset(img, u, v) + 3]) / 255.0f;
 }
 
 const Image* TextureCache::load_from_memory(const std::string& key,
@@ -68,7 +81,7 @@ const Image* TextureCache::load_from_memory(const std::string& key,
     int h = 0;
     int channels_in_file = 0;
     stbi_uc* data = stbi_load_from_memory(
-        bytes, static_cast<int>(size), &w, &h, &channels_in_file, 3);
+        bytes, static_cast<int>(size), &w, &h, &channels_in_file, 4);
     if (data == nullptr || w <= 0 || h <= 0) {
         std::fprintf(stderr,
                      "objtomc: warning: cannot decode embedded texture '%s' "
@@ -82,9 +95,9 @@ const Image* TextureCache::load_from_memory(const std::string& key,
     Image img;
     img.width  = w;
     img.height = h;
-    img.rgb.resize(static_cast<std::size_t>(w) *
-                   static_cast<std::size_t>(h) * 3u);
-    std::memcpy(img.rgb.data(), data, img.rgb.size());
+    img.rgba.resize(static_cast<std::size_t>(w) *
+                    static_cast<std::size_t>(h) * 4u);
+    std::memcpy(img.rgba.data(), data, img.rgba.size());
     stbi_image_free(data);
 
     const auto [pos, inserted] = cache_.emplace(key, std::move(img));
@@ -99,14 +112,15 @@ const Image* TextureCache::load(const std::filesystem::path& path) {
         return it->second.has_value() ? &*it->second : nullptr;
     }
 
-    // Force 3-channel RGB8 output regardless of the file's native channel
-    // count (grey → replicated, RGBA → alpha dropped). map_Kd alpha is not
-    // consumed by the pipeline — transparency comes from the material's
-    // d/Tr scalar per the matcher's three-branch design (§2 matcher docs).
+    // Force 4-channel RGBA8 output regardless of the file's native channel
+    // count (grey → replicated, alpha-less → alpha = 255). Session 52:
+    // the alpha channel feeds Material.d for glTF BLEND materials whose
+    // transparency lives in baseColorTexture.a (sample_alpha); RGB still
+    // feeds kd/ke via sample_nearest.
     int w = 0;
     int h = 0;
     int channels_in_file = 0;
-    stbi_uc* data = stbi_load(key.c_str(), &w, &h, &channels_in_file, 3);
+    stbi_uc* data = stbi_load(key.c_str(), &w, &h, &channels_in_file, 4);
     if (data == nullptr || w <= 0 || h <= 0) {
         std::fprintf(stderr,
                      "objtomc: warning: cannot load texture '%s' (%s); "
@@ -120,9 +134,9 @@ const Image* TextureCache::load(const std::filesystem::path& path) {
     Image img;
     img.width  = w;
     img.height = h;
-    img.rgb.resize(static_cast<std::size_t>(w) *
-                   static_cast<std::size_t>(h) * 3u);
-    std::memcpy(img.rgb.data(), data, img.rgb.size());
+    img.rgba.resize(static_cast<std::size_t>(w) *
+                    static_cast<std::size_t>(h) * 4u);
+    std::memcpy(img.rgba.data(), data, img.rgba.size());
     stbi_image_free(data);
 
     const auto [pos, inserted] = cache_.emplace(key, std::move(img));

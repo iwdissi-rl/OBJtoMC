@@ -46,6 +46,17 @@ struct Material {
     // mandate is glTF; see OPEN_QUESTIONS.md 2026-09-14).
     std::string               map_ke;
     std::vector<std::uint8_t> map_ke_bytes;
+
+    // glTF BLEND material whose alpha lives in baseColorTexture.a
+    // (Session 52). When true, `d` above is the baseColorFactor alpha
+    // only; the per-voxel effective alpha is d × texel alpha (both
+    // LINEAR — the sRGB transfer never applies to alpha), multiplied in
+    // the orchestrate layer at the same UV that samples kd. Sketchfab
+    // BLEND exports routinely omit baseColorFactor (defaults 1), so
+    // without the texture multiply they would silently render opaque.
+    // Always false for OBJ/MTL input. Must default-initialise: test
+    // helpers construct Material without value-init.
+    bool d_from_map_alpha = false;
 };
 
 struct Face {

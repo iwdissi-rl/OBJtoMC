@@ -681,11 +681,20 @@ void orchestrate(const std::filesystem::path& obj_path,
                     const auto& uv2 = m.uvs[static_cast<std::size_t>(face.uv_indices[2])];
                     const float u = w0 * uv0[0] + s * uv1[0] + t * uv2[0];
                     const float v = w0 * uv0[1] + s * uv1[1] + t * uv2[1];
-                    // Sampled texel replaces the flat Kd; d/illum are
-                    // inherited from the parent material so transparency
-                    // branch selection is unaffected.
+                    // Sampled texel replaces the flat Kd; illum is
+                    // inherited from the parent material.
                     if (tex != nullptr) {
                         mat.kd = texture::sample_nearest(*tex, u, v);
+                        // BLEND alpha-in-texture (Session 52): effective
+                        // alpha = baseColorFactor.a × texel.a. Alpha is
+                        // LINEAR on both sides (the sRGB transfer never
+                        // applies to alpha), so multiply directly — no
+                        // decode/encode. Without this, Sketchfab BLEND
+                        // materials with default factor alpha 1 render
+                        // fully opaque.
+                        if (mat.d_from_map_alpha) {
+                            mat.d *= texture::sample_alpha(*tex, u, v);
+                        }
                     }
                     // Emissive mask (Session 51): glTF emission is
                     // emissiveFactor × emissiveTexture in LINEAR space.

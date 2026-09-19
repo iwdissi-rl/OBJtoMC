@@ -21,6 +21,14 @@ Writes, next to this script:
                    voxels vx<2 sample the white texel (per-voxel ke -> 1,
                    emissive branch) and vx>=2 the black texel (ke -> 0,
                    opaque branch with the checker colour).
+  alpha.glb      — Session 52: the same quad with alphaMode BLEND, NO
+                   baseColorFactor (defaults [1,1,1,1] — the Sketchfab-
+                   standard omission), and an embedded 2x1 RGBA
+                   baseColorTexture: left texel opaque red (255,0,0,255),
+                   right translucent blue (0,0,255,64). With u = x/4,
+                   voxels vx<2 get d = 1 (opaque branch, red) and vx>=2
+                   d = 64/255 ~ 0.251 < opacity_threshold 0.5
+                   (transparent branch, blue).
   materials.gltf — three untextured single-triangle primitives sharing
                    one POSITION accessor (non-indexed path), one material
                    each, covering the PBR->Material mapping: opaque_red
@@ -162,6 +170,27 @@ def make_png_rgb8(width, height, pixels):
             + chunk(b"IEND", b""))
 
 
+def make_png_rgba8(width, height, pixels):
+    """Minimal deterministic PNG encoder (truecolor + alpha 8-bit, no
+    interlace). pixels: list of (r, g, b, a) rows-major, top row first."""
+    import zlib
+
+    def chunk(tag, payload):
+        return (struct.pack(">I", len(payload)) + tag + payload
+                + struct.pack(">I", zlib.crc32(tag + payload)))
+
+    raw = b""
+    for y in range(height):
+        raw += b"\x00"  # filter type 0 per scanline
+        for x in range(width):
+            raw += bytes(pixels[y * width + x])
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(raw, 9))
+            + chunk(b"IEND", b""))
+
+
 def write_emissive_glb():
     geo = quad_geometry()
     with open(os.path.join(HERE, "checker.png"), "rb") as fh:
@@ -194,6 +223,35 @@ def write_emissive_glb():
     bin_b = bin_chunk + b"\x00" * ((4 - len(bin_chunk) % 4) % 4)
     total = 12 + 8 + len(json_b) + 8 + len(bin_b)
     with open(os.path.join(HERE, "emissive.glb"), "wb") as fh:
+        fh.write(struct.pack("<III", 0x46546C67, 2, total))       # glTF v2
+        fh.write(struct.pack("<II", len(json_b), 0x4E4F534A))     # JSON
+        fh.write(json_b)
+        fh.write(struct.pack("<II", len(bin_b), 0x004E4942))      # BIN
+        fh.write(bin_b)
+
+
+def write_alpha_glb():
+    geo = quad_geometry()
+    tex = make_png_rgba8(2, 1, [(255, 0, 0, 255), (0, 0, 255, 64)])
+    # BIN layout: geo (92 B, 4-aligned) | tex.
+    doc = quad_json(
+        buffer_entry={"byteLength": len(geo) + len(tex)},
+        images_entry=[{"bufferView": 3, "mimeType": "image/png",
+                       "name": "alpha_tex"}],
+        extra_buffer_views=[
+            {"buffer": 0, "byteOffset": len(geo), "byteLength": len(tex)},
+        ],
+    )
+    doc["materials"][0]["alphaMode"] = "BLEND"
+    # Sketchfab-standard omission: no baseColorFactor (defaults
+    # [1,1,1,1]) — the transparency lives entirely in the texture alpha.
+    del doc["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"]
+    bin_chunk = geo + tex
+    json_b = dump_json(doc).encode("utf-8")
+    json_b += b" " * ((4 - len(json_b) % 4) % 4)      # pad with spaces
+    bin_b = bin_chunk + b"\x00" * ((4 - len(bin_chunk) % 4) % 4)
+    total = 12 + 8 + len(json_b) + 8 + len(bin_b)
+    with open(os.path.join(HERE, "alpha.glb"), "wb") as fh:
         fh.write(struct.pack("<III", 0x46546C67, 2, total))       # glTF v2
         fh.write(struct.pack("<II", len(json_b), 0x4E4F534A))     # JSON
         fh.write(json_b)
@@ -256,5 +314,7 @@ if __name__ == "__main__":
     write_quad_gltf()
     write_quad_glb()
     write_emissive_glb()
+    write_alpha_glb()
     write_materials_gltf()
-    print("wrote quad.gltf, quad.glb, emissive.glb, materials.gltf")
+    print("wrote quad.gltf, quad.glb, emissive.glb, alpha.glb, "
+          "materials.gltf")
