@@ -154,6 +154,11 @@ palette_cache/
 !tests/manual/transparent_tier4_world/region/
 !tests/manual/transparent_tier4_world/region/*.mca
 
+# Force-include the hand-written textured-quad fixture (quad.obj +
+# quad.mtl + checker.png per Session 48 per-voxel texture sampling).
+# Same `*.obj` carveout rationale as the entries above.
+!tests/fixtures/texture/*.obj
+
 # Force-include the vendored Crytek Sponza fixture (sponza.obj + sponza.mtl
 # + copyright.txt + LICENSE per Session 36 / DECISIONS.md 2026-07-04
 # "Scale Tier-4 scope (v0.2 work item #2)"). Same `*.obj` carveout
