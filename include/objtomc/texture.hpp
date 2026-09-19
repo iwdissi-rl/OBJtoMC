@@ -76,6 +76,15 @@ class TextureCache {
 public:
     const Image* load(const std::filesystem::path& path);
 
+    // Decode encoded image bytes held in memory (GLB buffer views / glTF
+    // data URIs — Session 49). `key` is the caller-chosen cache key; it
+    // must be distinct from any on-disk path the same cache may load
+    // (orchestrate prefixes "embedded:"). Same contract as load():
+    // failures warn once on stderr, are cached, and return nullptr.
+    const Image* load_from_memory(const std::string& key,
+                                  const std::uint8_t* bytes,
+                                  std::size_t size);
+
 private:
     std::unordered_map<std::string, std::optional<Image>> cache_;
 };

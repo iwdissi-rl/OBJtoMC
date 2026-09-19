@@ -56,6 +56,42 @@ std::array<float, 3> sample_nearest(const Image& img, float u, float v) noexcept
             static_cast<float>(img.rgb[i + 2]) / 255.0f};
 }
 
+const Image* TextureCache::load_from_memory(const std::string& key,
+                                            const std::uint8_t* bytes,
+                                            std::size_t size) {
+    const auto it = cache_.find(key);
+    if (it != cache_.end()) {
+        return it->second.has_value() ? &*it->second : nullptr;
+    }
+
+    int w = 0;
+    int h = 0;
+    int channels_in_file = 0;
+    stbi_uc* data = stbi_load_from_memory(
+        bytes, static_cast<int>(size), &w, &h, &channels_in_file, 3);
+    if (data == nullptr || w <= 0 || h <= 0) {
+        std::fprintf(stderr,
+                     "objtomc: warning: cannot decode embedded texture '%s' "
+                     "(%s); falling back to material Kd\n",
+                     key.c_str(), stbi_failure_reason());
+        if (data != nullptr) stbi_image_free(data);
+        cache_.emplace(key, std::nullopt);
+        return nullptr;
+    }
+
+    Image img;
+    img.width  = w;
+    img.height = h;
+    img.rgb.resize(static_cast<std::size_t>(w) *
+                   static_cast<std::size_t>(h) * 3u);
+    std::memcpy(img.rgb.data(), data, img.rgb.size());
+    stbi_image_free(data);
+
+    const auto [pos, inserted] = cache_.emplace(key, std::move(img));
+    (void)inserted;
+    return &*pos->second;
+}
+
 const Image* TextureCache::load(const std::filesystem::path& path) {
     const std::string key = path.string();
     const auto it = cache_.find(key);

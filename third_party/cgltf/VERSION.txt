@@ -1,0 +1,34 @@
+upstream:        https://github.com/jkuhlmann/cgltf
+license:         MIT
+license-spdx:    MIT
+git-sha:         85cd62382dfea638278962690cf515023f33ed00
+git-ref:         master    (branch; upstream HEAD at acquisition,
+                 committed 2026-02-02)
+acquired:        2026-09-14
+acquired-by:     Session 49 (glTF/GLB loader, v0.3 item #2)
+audited-by:      Session 49 (direct-implementation mandate, DECISIONS.md
+                 2026-09-14 "maintainer scope directive")
+
+source-url:      https://raw.githubusercontent.com/jkuhlmann/cgltf/85cd62382dfea638278962690cf515023f33ed00/cgltf.h
+file-sha256:     efb169dee911696b5d35fc8e3f7ea0c56d679debc529eba9ca6aa6443ba9d5e9
+file-size:       205754 bytes  (7240 lines)
+file-version:    cgltf v1.15
+
+license-url:     https://raw.githubusercontent.com/jkuhlmann/cgltf/85cd62382dfea638278962690cf515023f33ed00/LICENSE
+license-sha256:  f619925f80ef862497aaf8e8155ef218fa6a2190055129523ca3df9119a9ba95
+
+notes:           Vendored single-file C99 glTF 2.0 parser (.gltf JSON +
+                 .glb binary; buffers from external .bin files, GLB BIN
+                 chunks, and base64 data URIs via cgltf_load_buffers).
+                 Zero sub-dependencies (chosen over tinygltf, which
+                 bundles nlohmann/json and requires stb_image_write
+                 wiring — smaller audit surface for the same feature
+                 set). Used by the glTF loading layer
+                 (include/objtomc/gltf.hpp + src/gltf.cpp) to import
+                 Sketchfab downloads into the existing mesh::Mesh model.
+                 Read-only per the tinyobjloader vendoring precedent
+                 (DECISIONS.md 2026-06-18 "Vendoring pattern for
+                 third-party C++ deps"); customisation only via the
+                 upstream-blessed CGLTF_IMPLEMENTATION define in the
+                 single wrapper TU (src/gltf.cpp). The git-sha above is
+                 the load-bearing record; git-ref is informational.

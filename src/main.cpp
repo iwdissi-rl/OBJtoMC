@@ -56,11 +56,13 @@ public:
 
 void print_help(std::ostream& os, const char* argv0) {
     os <<
-        "Usage: " << argv0 << " [options] <input.obj> <world_dir>\n"
+        "Usage: " << argv0 << " [options] <input.{obj,gltf,glb}> <world_dir>\n"
         "\n"
-        "Convert a Wavefront OBJ mesh into a vanilla Minecraft Java Edition\n"
-        "1.21.5 world directory. Pipeline: OBJ -> voxelise -> match colours\n"
-        "to MC block palette -> write region files + level.dat.\n"
+        "Convert a Wavefront OBJ or glTF 2.0 mesh (.gltf/.glb — Sketchfab's\n"
+        "download format) into a vanilla Minecraft Java Edition 1.21.5 world\n"
+        "directory. Pipeline: load -> voxelise -> per-voxel texture sample ->\n"
+        "match colours to MC block palette -> write region files + level.dat.\n"
+        "Format dispatch is by file extension.\n"
         "\n"
         "Mandatory:\n"
         "  --voxel-size <float>            OBJ-space units per voxel. Must be > 0.\n"
@@ -210,8 +212,9 @@ ParsedCli parse_cli(int argc, char** argv) {
     if (cli.show_help) return cli;
 
     if (positionals.size() != 2) {
-        throw usage_error("usage requires exactly 2 positional args (<input.obj> "
-                          "<world_dir>); got " + std::to_string(positionals.size()));
+        throw usage_error("usage requires exactly 2 positional args "
+                          "(<input.{obj,gltf,glb}> <world_dir>); got " +
+                          std::to_string(positionals.size()));
     }
     if (!voxel_size_seen) {
         throw usage_error("--voxel-size is mandatory");

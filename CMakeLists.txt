@@ -196,6 +196,25 @@ target_include_directories(texture PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(texture PRIVATE stb)
 
 # ---------------------------------------------------------------------------
+# third_party/cgltf/ — vendored single-header glTF 2.0 parser (MIT). Same
+# INTERFACE + SYSTEM-include pattern as tinyobjloader/stb; pin + provenance
+# in third_party/cgltf/VERSION.txt. Linked PRIVATE by the gltf layer only.
+# ---------------------------------------------------------------------------
+add_library(cgltf INTERFACE)
+target_include_directories(cgltf SYSTEM
+    INTERFACE ${CMAKE_SOURCE_DIR}/third_party/cgltf)
+
+# ---------------------------------------------------------------------------
+# gltf — glTF/GLB loading layer (Session 49, v0.3 item #2). Emits the same
+# mesh::Mesh model as the mesh layer so all downstream layers are format-
+# agnostic. Public header is pure-stdlib; cgltf is linked PRIVATE per the
+# wrapping discipline (proposal §5.9 precedent).
+# ---------------------------------------------------------------------------
+add_library(gltf STATIC src/gltf.cpp)
+target_include_directories(gltf PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(gltf PRIVATE cgltf)
+
+# ---------------------------------------------------------------------------
 # palette — Block Palette DB layer. Public header is pure-stdlib; the loader
 # reads two files at runtime:
 #   - data/block_palette_db.csv             (derived from MC textures)
@@ -313,7 +332,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE texture ZLIB::ZLIB)
+    PRIVATE gltf texture ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

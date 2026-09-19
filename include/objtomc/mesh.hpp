@@ -29,6 +29,14 @@ struct Material {
     float                  d;        // alpha   d/Tr, default 1 (opaque)
     int                    illum;    // illumination model, default 2
     std::string            map_kd;   // diffuse texture filename, "" if absent
+
+    // Encoded image bytes (PNG/JPG/...) for diffuse textures embedded in
+    // the source file (GLB buffer views / glTF data URIs — Session 49).
+    // Empty for OBJ/MTL input and for external glTF texture files, where
+    // map_kd carries the filename instead. When non-empty, map_kd holds a
+    // display name only (not a path) and consumers must decode from these
+    // bytes rather than from disk.
+    std::vector<std::uint8_t> map_kd_bytes;
 };
 
 struct Face {

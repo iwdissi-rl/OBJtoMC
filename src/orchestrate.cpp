@@ -31,6 +31,7 @@
 #include "objtomc/orchestrate.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -47,6 +48,7 @@
 #include "objtomc/anvil.hpp"
 #include "objtomc/chunk.hpp"
 #include "objtomc/matcher.hpp"
+#include "objtomc/gltf.hpp"
 #include "objtomc/mesh.hpp"
 #include "objtomc/nbt.hpp"
 #include "objtomc/palette.hpp"
@@ -463,9 +465,17 @@ void orchestrate(const std::filesystem::path& obj_path,
         static_cast<std::int64_t>(std::time(nullptr)));
     const std::int64_t now_unix_ms = now_unix_s * 1000LL;
 
-    // ---- 1. Load mesh ----
-    log("[mesh]    loading " + obj_path.string());
-    const mesh::Mesh m = mesh::load_obj(obj_path);
+    // ---- 1. Load mesh (format dispatch on extension, Session 49) ----
+    std::string ext = obj_path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) {
+                       return static_cast<char>(std::tolower(c));
+                   });
+    const bool is_gltf = (ext == ".gltf" || ext == ".glb");
+    log("[mesh]    loading " + obj_path.string() +
+        (is_gltf ? " (glTF)" : " (OBJ)"));
+    const mesh::Mesh m =
+        is_gltf ? gltf::load_gltf(obj_path) : mesh::load_obj(obj_path);
     log("[mesh]    loaded " + std::to_string(m.positions.size()) + " positions, " +
         std::to_string(m.faces.size()) + " faces, " +
         std::to_string(m.materials.size()) + " materials");
@@ -526,7 +536,17 @@ void orchestrate(const std::filesystem::path& obj_path,
     std::vector<const texture::Image*> mat_tex(grid.materials().size(), nullptr);
     if (!m.uvs.empty()) {
         for (std::size_t i = 0; i < grid.materials().size(); ++i) {
-            std::string map_kd = grid.materials()[i].map_kd;
+            const mesh::Material& gm = grid.materials()[i];
+            if (!gm.map_kd_bytes.empty()) {
+                // Embedded texture (GLB buffer view / glTF data URI,
+                // Session 49): decode from the carried bytes. Key is
+                // index-scoped — distinct per material, never a path.
+                mat_tex[i] = tex_cache.load_from_memory(
+                    "embedded:" + std::to_string(i) + ":" + gm.map_kd,
+                    gm.map_kd_bytes.data(), gm.map_kd_bytes.size());
+                continue;
+            }
+            std::string map_kd = gm.map_kd;
             if (map_kd.empty()) continue;
             std::replace(map_kd.begin(), map_kd.end(), '\\', '/');
             fs::path tp(map_kd);
