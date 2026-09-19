@@ -81,6 +81,23 @@ session, not a quiet bump:
   (Session 48). Used by the texture layer (`src/texture.cpp`) to
   decode `map_Kd` diffuse textures for per-voxel sampling (v0.3
   item #1).
+- `cgltf/` — single-header C99 glTF 2.0 parser (`cgltf.h` v1.15),
+  MIT. Pinned to `master`-branch SHA
+  `85cd62382dfea638278962690cf515023f33ed00` (upstream HEAD at
+  acquisition, committed 2026-02-02). Acquired 2026-09-14
+  (Session 49). Used by the glTF loading layer (`src/gltf.cpp`) to
+  import Sketchfab `.gltf`/`.glb` downloads into `mesh::Mesh`
+  (v0.3 item #2). Zero sub-dependencies — chosen over tinygltf,
+  which bundles nlohmann/json (see DECISIONS.md 2026-09-14).
+- `cuda_voxelizer/` — vendored subset (5 files: `voxelize.cu`,
+  `voxelize.cuh`, `morton_LUTs.h`, `util.h`, `LICENSE`) of the
+  Schwarz-Seidel surface-voxelisation CUDA kernel, MIT. Pinned to
+  `main`-branch SHA `f9fc9a936e3f3bb50fc001de638b36b94a87b5ca`
+  (2026-06-16 upstream HEAD). Acquired 2026-07-04 (Session 39).
+  Used by the GPU voxelizer path (`src/voxel_gpu.cu` adapter shim;
+  gated on `WITH_CUDA`). Upstream CLI/IO/CPU-fallback files
+  intentionally NOT vendored — see the per-file disposition table
+  in `cuda_voxelizer/VERSION.txt`.
 - `minecraft-data/` — JSON data feed (no source code), MIT.
   Pinned to `master`-branch SHA
   `d4d349218383bc0befcdd8bb0adac135234fe5d7` (Release 3.111.0,

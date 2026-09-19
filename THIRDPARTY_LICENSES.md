@@ -54,6 +54,54 @@ the project eventually declares.
   `src/texture.cpp`) for per-voxel `map_Kd` diffuse-texture
   sampling (v0.3 item #1, Session 48).
 
+## cgltf
+
+- **Path in repo:** `third_party/cgltf/`
+- **Upstream:** https://github.com/jkuhlmann/cgltf
+- **Pinned commit:** `85cd62382dfea638278962690cf515023f33ed00`
+  (upstream `master` HEAD at acquisition, committed 2026-02-02;
+  `cgltf.h` v1.15)
+- **Acquired:** 2026-09-14 (Session 49)
+- **Audited:** 2026-09-14 (Session 49 — single-header, zero
+  sub-dependencies)
+- **License:** MIT (SPDX: `MIT`). Full text at
+  `third_party/cgltf/LICENSE`.
+- **Copyright:** Copyright (c) 2018-2021 Johannes Kuhlmann.
+- **Vendored content:** `cgltf.h` only (C99 glTF 2.0 parser:
+  `.gltf` JSON + `.glb` binary; buffer loading from external
+  `.bin` files, GLB BIN chunks, and base64 data URIs).
+- **Embedded sub-dependency:** none (the reason it was chosen over
+  tinygltf, which bundles nlohmann/json — see DECISIONS.md
+  2026-09-14).
+- **Used by:** the glTF loading layer (`include/objtomc/gltf.hpp` +
+  `src/gltf.cpp`) for Sketchfab `.gltf`/`.glb` import (v0.3
+  item #2, Session 49).
+
+## cuda_voxelizer
+
+- **Path in repo:** `third_party/cuda_voxelizer/`
+- **Upstream:** https://github.com/Forceflow/cuda_voxelizer
+- **Pinned commit:** `f9fc9a936e3f3bb50fc001de638b36b94a87b5ca`
+  (upstream `main` HEAD, 2026-06-16)
+- **Acquired:** 2026-07-04 (Session 39)
+- **Audited:** Session 23 (`research/voxel_proposal.md` §1.5(a))
+  + Session 38 (`research/gpu_port_proposal.md` §1.5(a) SHA +
+  LICENSE refresh)
+- **License:** MIT (SPDX: `MIT`). Full text at
+  `third_party/cuda_voxelizer/LICENSE`.
+- **Copyright:** Copyright (c) 2019 Jeroen Baert.
+- **Vendored content:** 4 source files (`voxelize.cu`,
+  `voxelize.cuh`, `morton_LUTs.h`, `util.h`) — the Schwarz-Seidel
+  surface-voxelisation kernel subset only. Upstream CLI, mesh IO,
+  CPU fallback, solid voxelisation, and Trimesh2 submodule
+  intentionally NOT vendored; per-file disposition table in
+  `third_party/cuda_voxelizer/VERSION.txt`.
+- **Embedded sub-dependency:** none vendored (upstream's Trimesh2 /
+  helper-header dependencies are satisfied by the in-tree adapter
+  shim in `src/voxel_gpu.cu`, not by vendoring).
+- **Used by:** the GPU voxelizer path (`src/voxel_gpu.cu`, gated on
+  `WITH_CUDA`; v0.2 work item #3, Sessions 39-42).
+
 ## PrismarineJS/minecraft-data
 
 - **Path in repo:** `third_party/minecraft-data/`
