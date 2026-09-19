@@ -72,6 +72,72 @@ std::array<float, 3> transform_point(const cgltf_float m[16],
     };
 }
 
+// Resolve one glTF texture reference into the mesh::Material
+// filename-or-bytes contract (see mesh.hpp): GLB buffer view → bytes,
+// base64 data URI → bytes, external file → percent-decoded relative path.
+// `kind` disambiguates the synthesised display names (and thereby the
+// TextureCache keys in orchestrate) between the kd and ke slots.
+void extract_texture_ref(const cgltf_texture* tex, std::size_t index,
+                         const char* kind, const std::string& mat_name,
+                         std::string& out_name,
+                         std::vector<std::uint8_t>& out_bytes) {
+    if (tex == nullptr || tex->image == nullptr) return;
+    const cgltf_image& img = *tex->image;
+    if (img.buffer_view != nullptr &&
+        img.buffer_view->buffer != nullptr &&
+        img.buffer_view->buffer->data != nullptr) {
+        // GLB-embedded (or buffer-backed) image: copy the encoded
+        // bytes out; TextureCache::load_from_memory decodes them.
+        const auto* base = static_cast<const std::uint8_t*>(
+            img.buffer_view->buffer->data) + img.buffer_view->offset;
+        out_bytes.assign(base, base + img.buffer_view->size);
+        out_name = (img.name != nullptr && img.name[0] != '\0')
+            ? std::string(img.name)
+            : ("embedded_" + std::string(kind) + "_image_" +
+               std::to_string(index));
+    } else if (img.uri != nullptr && img.uri[0] != '\0') {
+        if (std::strncmp(img.uri, "data:", 5) == 0) {
+            // Base64 data URI: decode the payload to bytes.
+            const char* comma = std::strchr(img.uri, ',');
+            if (comma != nullptr) {
+                const char* b64 = comma + 1;
+                // Decoded size: 3/4 of the base64 length, minus
+                // padding. cgltf's decoder wants the exact size.
+                const std::size_t b64_len = std::strlen(b64);
+                std::size_t decoded = (b64_len / 4) * 3;
+                if (b64_len >= 1 && b64[b64_len - 1] == '=') --decoded;
+                if (b64_len >= 2 && b64[b64_len - 2] == '=') --decoded;
+                cgltf_options topts{};
+                void* mem = nullptr;
+                if (cgltf_load_buffer_base64(&topts, decoded, b64,
+                                             &mem) ==
+                        cgltf_result_success && mem != nullptr) {
+                    const auto* bytes =
+                        static_cast<const std::uint8_t*>(mem);
+                    out_bytes.assign(bytes, bytes + decoded);
+                    std::free(mem);
+                    out_name = "data_uri_" + std::string(kind) + "_image_" +
+                        std::to_string(index);
+                } else {
+                    std::fprintf(stderr,
+                                 "objtomc: warning: cannot decode "
+                                 "base64 data URI (%s) for material '%s'; "
+                                 "falling back to the flat factor\n",
+                                 kind, mat_name.c_str());
+                }
+            }
+        } else {
+            // External file: percent-decode the URI; path resolves
+            // against the asset's directory in orchestrate (same
+            // contract as MTL map_Kd).
+            std::string uri(img.uri);
+            const cgltf_size n = cgltf_decode_uri(uri.data());
+            uri.resize(n);
+            out_name = std::move(uri);
+        }
+    }
+}
+
 void extract_material(const cgltf_material& src, std::size_t index,
                       mesh::Material& out) {
     out.name = (src.name != nullptr && src.name[0] != '\0')
@@ -91,62 +157,8 @@ void extract_material(const cgltf_material& src, std::size_t index,
                   srgb_encode(pbr.base_color_factor[2])};
         base_alpha = pbr.base_color_factor[3];
 
-        const cgltf_texture* tex = pbr.base_color_texture.texture;
-        if (tex != nullptr && tex->image != nullptr) {
-            const cgltf_image& img = *tex->image;
-            if (img.buffer_view != nullptr &&
-                img.buffer_view->buffer != nullptr &&
-                img.buffer_view->buffer->data != nullptr) {
-                // GLB-embedded (or buffer-backed) image: copy the encoded
-                // bytes out; TextureCache::load_from_memory decodes them.
-                const auto* base = static_cast<const std::uint8_t*>(
-                    img.buffer_view->buffer->data) + img.buffer_view->offset;
-                out.map_kd_bytes.assign(base, base + img.buffer_view->size);
-                out.map_kd = (img.name != nullptr && img.name[0] != '\0')
-                    ? std::string(img.name)
-                    : ("embedded_image_" + std::to_string(index));
-            } else if (img.uri != nullptr && img.uri[0] != '\0') {
-                if (std::strncmp(img.uri, "data:", 5) == 0) {
-                    // Base64 data URI: decode the payload to bytes.
-                    const char* comma = std::strchr(img.uri, ',');
-                    if (comma != nullptr) {
-                        const char* b64 = comma + 1;
-                        // Decoded size: 3/4 of the base64 length, minus
-                        // padding. cgltf's decoder wants the exact size.
-                        const std::size_t b64_len = std::strlen(b64);
-                        std::size_t decoded = (b64_len / 4) * 3;
-                        if (b64_len >= 1 && b64[b64_len - 1] == '=') --decoded;
-                        if (b64_len >= 2 && b64[b64_len - 2] == '=') --decoded;
-                        cgltf_options topts{};
-                        void* mem = nullptr;
-                        if (cgltf_load_buffer_base64(&topts, decoded, b64,
-                                                     &mem) ==
-                                cgltf_result_success && mem != nullptr) {
-                            const auto* bytes =
-                                static_cast<const std::uint8_t*>(mem);
-                            out.map_kd_bytes.assign(bytes, bytes + decoded);
-                            std::free(mem);
-                            out.map_kd =
-                                "data_uri_image_" + std::to_string(index);
-                        } else {
-                            std::fprintf(stderr,
-                                         "objtomc: warning: cannot decode "
-                                         "base64 data URI for material '%s'; "
-                                         "falling back to flat Kd\n",
-                                         out.name.c_str());
-                        }
-                    }
-                } else {
-                    // External file: percent-decode the URI; path resolves
-                    // against the asset's directory in orchestrate (same
-                    // contract as MTL map_Kd).
-                    std::string uri(img.uri);
-                    const cgltf_size n = cgltf_decode_uri(uri.data());
-                    uri.resize(n);
-                    out.map_kd = std::move(uri);
-                }
-            }
-        }
+        extract_texture_ref(pbr.base_color_texture.texture, index, "kd",
+                            out.name, out.map_kd, out.map_kd_bytes);
     }
 
     float strength = 1.0f;
@@ -156,6 +168,12 @@ void extract_material(const cgltf_material& src, std::size_t index,
     out.ke = {srgb_encode(src.emissive_factor[0] * strength),
               srgb_encode(src.emissive_factor[1] * strength),
               srgb_encode(src.emissive_factor[2] * strength)};
+
+    // Sketchfab-standard emission: emissiveFactor is usually [1,1,1] with
+    // the emissiveTexture carrying the actual mask; the per-voxel product
+    // (Session 51) happens in orchestrate step 4a.
+    extract_texture_ref(src.emissive_texture.texture, index, "ke",
+                        out.name, out.map_ke, out.map_ke_bytes);
 
     // BLEND → translucent with the base colour's alpha. MASK is a binary
     // cutoff (block exists or not) and OPAQUE is opaque: both d = 1.

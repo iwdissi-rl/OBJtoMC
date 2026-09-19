@@ -37,6 +37,15 @@ struct Material {
     // display name only (not a path) and consumers must decode from these
     // bytes rather than from disk.
     std::vector<std::uint8_t> map_kd_bytes;
+
+    // Emissive mask texture (glTF emissiveTexture — Session 51). Same
+    // filename-vs-embedded-bytes contract as map_kd/map_kd_bytes. The
+    // texture is an sRGB mask MULTIPLIED (in linear space, per the glTF
+    // spec) with the flat ke factor above; ke alone stays authoritative
+    // when both are empty. OBJ/MTL map_Ke is not wired up (Sketchfab
+    // mandate is glTF; see OPEN_QUESTIONS.md 2026-09-14).
+    std::string               map_ke;
+    std::vector<std::uint8_t> map_ke_bytes;
 };
 
 struct Face {

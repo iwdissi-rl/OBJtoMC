@@ -111,6 +111,18 @@ struct WorldPos {
     std::int32_t z;
 };
 
+// sRGB transfer pair (IEC 61966-2-1), for the per-voxel emissive product
+// (Session 51): glTF combines emissiveFactor and emissiveTexture in
+// LINEAR space, while Material.ke and sample_nearest are sRGB-gamma.
+inline float srgb_decode(float c) noexcept {
+    if (c <= 0.04045f) return c / 12.92f;
+    return std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+inline float srgb_encode(float c) noexcept {
+    if (c <= 0.0031308f) return 12.92f * c;
+    return 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+}
+
 inline WorldPos voxel_to_world(int vx, int vy, int vz,
                                const std::array<std::int32_t, 3>& world_origin) noexcept {
     return WorldPos{
@@ -590,29 +602,40 @@ void orchestrate(const std::filesystem::path& obj_path,
     // Sponza fixture) take the pre-Session-48 path bit-for-bit.
     texture::TextureCache tex_cache;
     std::vector<const texture::Image*> mat_tex(grid.materials().size(), nullptr);
+    std::vector<const texture::Image*> mat_tex_ke(grid.materials().size(), nullptr);
     if (!m.uvs.empty()) {
-        for (std::size_t i = 0; i < grid.materials().size(); ++i) {
-            const mesh::Material& gm = grid.materials()[i];
-            if (!gm.map_kd_bytes.empty()) {
+        // Shared resolver for the kd and ke texture slots. `prefix`
+        // namespaces the embedded-bytes cache keys so a kd and a ke image
+        // with colliding display names on the same material stay distinct.
+        const auto resolve = [&](std::size_t i, const std::string& name,
+                                 const std::vector<std::uint8_t>& bytes,
+                                 const char* prefix) -> const texture::Image* {
+            if (!bytes.empty()) {
                 // Embedded texture (GLB buffer view / glTF data URI,
                 // Session 49): decode from the carried bytes. Key is
                 // index-scoped — distinct per material, never a path.
-                mat_tex[i] = tex_cache.load_from_memory(
-                    "embedded:" + std::to_string(i) + ":" + gm.map_kd,
-                    gm.map_kd_bytes.data(), gm.map_kd_bytes.size());
-                continue;
+                return tex_cache.load_from_memory(
+                    std::string(prefix) + std::to_string(i) + ":" + name,
+                    bytes.data(), bytes.size());
             }
-            std::string map_kd = gm.map_kd;
-            if (map_kd.empty()) continue;
-            std::replace(map_kd.begin(), map_kd.end(), '\\', '/');
-            fs::path tp(map_kd);
+            if (name.empty()) return nullptr;
+            std::string p = name;
+            std::replace(p.begin(), p.end(), '\\', '/');
+            fs::path tp(p);
             if (tp.is_relative()) tp = obj_path.parent_path() / tp;
-            mat_tex[i] = tex_cache.load(tp);
+            return tex_cache.load(tp);
+        };
+        for (std::size_t i = 0; i < grid.materials().size(); ++i) {
+            const mesh::Material& gm = grid.materials()[i];
+            mat_tex[i]    = resolve(i, gm.map_kd, gm.map_kd_bytes, "embedded:");
+            mat_tex_ke[i] = resolve(i, gm.map_ke, gm.map_ke_bytes, "embedded_ke:");
         }
     }
-    const bool any_texture =
-        std::any_of(mat_tex.begin(), mat_tex.end(),
-                    [](const texture::Image* t) { return t != nullptr; });
+    const auto has_any = [](const std::vector<const texture::Image*>& v) {
+        return std::any_of(v.begin(), v.end(),
+                           [](const texture::Image* t) { return t != nullptr; });
+    };
+    const bool any_texture = has_any(mat_tex) || has_any(mat_tex_ke);
     if (any_texture) log("[texture] per-voxel texture sampling active");
 
     const auto grid_origin = grid.origin_world();
@@ -625,7 +648,9 @@ void orchestrate(const std::filesystem::path& obj_path,
             mesh::Material mat = grid.materials()[static_cast<std::size_t>(mid)];
             const texture::Image* tex =
                 any_texture ? mat_tex[static_cast<std::size_t>(mid)] : nullptr;
-            if (tex != nullptr) {
+            const texture::Image* tex_ke =
+                any_texture ? mat_tex_ke[static_cast<std::size_t>(mid)] : nullptr;
+            if (tex != nullptr || tex_ke != nullptr) {
                 // Recover the UV at this voxel's winning triangle: the
                 // closest point on the triangle to the voxel centre is
                 // exactly the point the disambiguation measured (same
@@ -656,10 +681,26 @@ void orchestrate(const std::filesystem::path& obj_path,
                     const auto& uv2 = m.uvs[static_cast<std::size_t>(face.uv_indices[2])];
                     const float u = w0 * uv0[0] + s * uv1[0] + t * uv2[0];
                     const float v = w0 * uv0[1] + s * uv1[1] + t * uv2[1];
-                    // Sampled texel replaces the flat Kd; ke/d/illum are
-                    // inherited from the parent material so emission and
-                    // transparency branch selection are unaffected.
-                    mat.kd = texture::sample_nearest(*tex, u, v);
+                    // Sampled texel replaces the flat Kd; d/illum are
+                    // inherited from the parent material so transparency
+                    // branch selection is unaffected.
+                    if (tex != nullptr) {
+                        mat.kd = texture::sample_nearest(*tex, u, v);
+                    }
+                    // Emissive mask (Session 51): glTF emission is
+                    // emissiveFactor × emissiveTexture in LINEAR space.
+                    // mat.ke already carries encode(factor × strength), so
+                    // decode both sides, multiply, re-encode. Black texels
+                    // drive ke → 0, dropping the voxel out of the matcher's
+                    // emissive branch (the DamagedHelmet all-froglight
+                    // failure mode).
+                    if (tex_ke != nullptr) {
+                        const auto ke_s = texture::sample_nearest(*tex_ke, u, v);
+                        for (std::size_t c = 0; c < 3; ++c) {
+                            mat.ke[c] = srgb_encode(srgb_decode(mat.ke[c]) *
+                                                    srgb_decode(ke_s[c]));
+                        }
+                    }
                 }
             }
             mats.push_back(std::move(mat));
