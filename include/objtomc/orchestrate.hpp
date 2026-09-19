@@ -8,6 +8,7 @@
 #include <string>
 
 #include "objtomc/matcher.hpp"   // matcher::MatcherOptions
+#include "objtomc/mesh.hpp"      // mesh::Mesh (voxel_size_for_target)
 #include "objtomc/voxel.hpp"     // voxel::AxisConvention
 
 namespace objtomc::orch {
@@ -25,7 +26,14 @@ static constexpr const char*   WORLD_DIR_REGION_SUBDIR = "region";
 // ---------------------------------------------------------------------------
 struct OrchestrateOptions {
     // ----- Voxelization ----------------------------------------------------
-    float                                    voxel_size;            // mandatory, > 0
+    // Exactly ONE of voxel_size / target_size must be set (Session 50,
+    // v0.3 item #3): voxel_size > 0 gives mesh-units-per-voxel directly;
+    // target_size gives the desired output size in BLOCKS along the mesh
+    // AABB's longest axis and orchestrate derives voxel_size from the
+    // loaded mesh via voxel_size_for_target(). Setting both (voxel_size
+    // != 0 while target_size is engaged) throws orchestrate_error.
+    float                                    voxel_size;            // 0 = unset
+    std::optional<std::int32_t>              target_size;           // default nullopt
     voxel::AxisConvention                    axis_convention;       // default Y_UP
     std::optional<std::array<int,   3>>      voxel_grid_dimensions; // default = auto from mesh AABB
     std::optional<std::array<float, 3>>      voxel_grid_origin_world; // default = mesh AABB minimum
@@ -92,6 +100,25 @@ public:
 void orchestrate(const std::filesystem::path& obj_path,
                  const std::filesystem::path& world_dir,
                  const OrchestrateOptions&    opts);
+
+// ---------------------------------------------------------------------------
+// voxel_size_for_target — the OrchestrateOptions::target_size derivation,
+// exposed so tests (and callers wanting the number up front) share the one
+// implementation orchestrate() uses.
+//
+// Returns the voxel_size (mesh units per voxel) that makes the auto-sized
+// voxel grid exactly target_size cells along the mesh AABB's longest axis:
+// longest_extent / target_size, widened by a 1e-5 relative headroom factor
+// so the voxel layer's ceil(extent / voxel_size) cannot round up to
+// target_size + 1 under float division. Exact for target_size < 100000 —
+// far beyond the reachable grid (max_grid_cells caps ~1024 per axis) and
+// MC's 384-block world height. Axis convention is irrelevant: Y_UP/Z_UP
+// permute axes, which cannot change the longest extent.
+//
+// Throws orchestrate_error if target_size < 1, the mesh has no positions,
+// or the longest AABB extent is non-finite or zero (degenerate point mesh).
+// ---------------------------------------------------------------------------
+float voxel_size_for_target(const mesh::Mesh& m, std::int32_t target_size);
 
 // ---------------------------------------------------------------------------
 // write_level_dat — helper exposed for testing. Builds the level.dat NBT

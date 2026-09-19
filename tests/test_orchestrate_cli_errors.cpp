@@ -9,6 +9,9 @@
 //   3) bad obj path                  → exit 3 (mesh)
 //   4) world_dir already exists      → exit 9 (orchestrate)
 //   5) bad --axis-convention value  → exit 2 (usage), stderr "axis-convention"
+//   6) --voxel-size AND --target-size → exit 2, stderr "mutually exclusive"
+//   7) --target-size 0               → exit 2, stderr "target-size"
+//   8) --target-size 8 (positive)    → exit 0, world written (Session 50)
 
 #include <cstdio>
 #include <cstdlib>
@@ -122,7 +125,41 @@ int main(int argc, char** argv) {
         std::printf("  (5) bad axis-convention:    exit %d ✓\n", code);
     }
 
+    // ---- (6) --voxel-size AND --target-size → exit 2 ----
+    {
+        auto [code, out] = run(bin + " --voxel-size 0.125 --target-size 8 " +
+                               good_obj + " " + (base / "w6").string());
+        expect_exit(code, 2, "(6) both sizing flags");
+        if (!contains(out, "mutually exclusive")) {
+            fail("(6) both sizing flags: stderr should say 'mutually exclusive': " + out);
+        }
+        std::printf("  (6) both sizing flags:      exit %d ✓\n", code);
+    }
+
+    // ---- (7) --target-size 0 → exit 2 ----
+    {
+        auto [code, out] = run(bin + " --target-size 0 " + good_obj + " " +
+                               (base / "w7").string());
+        expect_exit(code, 2, "(7) target-size 0");
+        if (!contains(out, "target-size")) {
+            fail("(7) target-size 0: stderr should name 'target-size': " + out);
+        }
+        std::printf("  (7) target-size 0:          exit %d ✓\n", code);
+    }
+
+    // ---- (8) --target-size 8 positive path → exit 0, region written ----
+    {
+        const auto w8 = base / "w8";
+        auto [code, out] = run(bin + " --target-size 8 " + good_obj + " " +
+                               w8.string());
+        expect_exit(code, 0, "(8) target-size positive");
+        if (!fs::exists(w8 / "region" / "r.0.0.mca")) {
+            fail("(8) target-size positive: r.0.0.mca not written; output: " + out);
+        }
+        std::printf("  (8) target-size positive:   exit %d ✓\n", code);
+    }
+
     fs::remove_all(base);
-    std::printf("PASS: orchestrate_cli_errors (5 sub-cases)\n");
+    std::printf("PASS: orchestrate_cli_errors (8 sub-cases)\n");
     return 0;
 }

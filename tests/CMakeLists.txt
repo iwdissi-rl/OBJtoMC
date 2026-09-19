@@ -621,6 +621,23 @@ add_test(
 )
 
 # ---------------------------------------------------------------------------
+# Session 50 — --target-size (v0.3 work item #3). One new ctest; the CLI
+# surface (mutual exclusion with --voxel-size, bad values, positive path)
+# is covered by three new sub-cases in orchestrate_cli_errors above.
+#
+#   orchestrate_target_size — voxel_size_for_target exactness through the
+#       real voxel layer (dims == target along the longest AABB axis for
+#       4 targets incl. the ceil-headroom case), orchestrate plumbing
+#       byte-equality vs an explicit voxel_size run, error paths.
+# ---------------------------------------------------------------------------
+add_executable(test_orchestrate_target_size test_orchestrate_target_size.cpp)
+target_link_libraries(test_orchestrate_target_size PRIVATE orchestrate voxel mesh)
+add_test(
+    NAME orchestrate_target_size
+    COMMAND test_orchestrate_target_size ${MESH_FIXTURES_DIR}/cube.obj
+)
+
+# ---------------------------------------------------------------------------
 # Session 40 — GPU voxelizer correctness gates (v0.2 work item #3, slice 2).
 # Two new ctests, both gated on WITH_CUDA_ENABLED so the CPU-only build path
 # does not attempt to compile them. See research/gpu_port_proposal.md §3.6

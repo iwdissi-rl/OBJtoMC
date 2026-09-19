@@ -65,7 +65,8 @@ namespace objtomc::orch {
 // ===========================================================================
 OrchestrateOptions default_options() noexcept {
     OrchestrateOptions o{};
-    o.voxel_size              = 0.0f;                                // caller MUST set
+    o.voxel_size              = 0.0f;                                // caller sets this…
+    o.target_size             = std::nullopt;                        // …or this (exactly one)
     o.axis_convention         = voxel::AxisConvention::Y_UP;
     o.voxel_grid_dimensions   = std::nullopt;
     o.voxel_grid_origin_world = std::nullopt;
@@ -334,10 +335,22 @@ std::vector<std::uint8_t> gzip_compress(const std::vector<std::uint8_t>& in) {
 // Validation helpers per proposal §3.1 / §3.3.
 // ===========================================================================
 void validate_options(const OrchestrateOptions& opts) {
-    if (!std::isfinite(opts.voxel_size) || opts.voxel_size <= 0.0f) {
+    if (opts.target_size.has_value()) {
+        if (opts.voxel_size != 0.0f) {
+            throw orchestrate_error(
+                "OrchestrateOptions::voxel_size and ::target_size are mutually "
+                "exclusive; leave voxel_size at 0 (unset) when target_size is used");
+        }
+        if (*opts.target_size < 1) {
+            throw orchestrate_error(
+                "OrchestrateOptions::target_size must be >= 1, got " +
+                std::to_string(*opts.target_size));
+        }
+    } else if (!std::isfinite(opts.voxel_size) || opts.voxel_size <= 0.0f) {
         throw orchestrate_error(
             "OrchestrateOptions::voxel_size must be positive and finite, got " +
-            std::to_string(opts.voxel_size));
+            std::to_string(opts.voxel_size) +
+            " (set voxel_size > 0 or target_size)");
     }
     if (opts.max_grid_cells <= 0) {
         throw orchestrate_error(
@@ -441,6 +454,37 @@ void write_level_dat(const OrchestrateOptions&     opts,
 }
 
 // ===========================================================================
+// voxel_size_for_target — target_size → voxel_size derivation (Session 50,
+// v0.3 item #3). Contract in orchestrate.hpp.
+// ===========================================================================
+float voxel_size_for_target(const mesh::Mesh& m, std::int32_t target_size) {
+    if (target_size < 1) {
+        throw orchestrate_error("voxel_size_for_target: target_size must be >= 1, got " +
+                                std::to_string(target_size));
+    }
+    if (m.positions.empty()) {
+        throw orchestrate_error("voxel_size_for_target: mesh has no positions");
+    }
+    std::array<float, 3> lo = m.positions[0];
+    std::array<float, 3> hi = m.positions[0];
+    for (const auto& p : m.positions) {
+        for (int k = 0; k < 3; ++k) {
+            if (p[k] < lo[k]) lo[k] = p[k];
+            if (p[k] > hi[k]) hi[k] = p[k];
+        }
+    }
+    const float longest = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]});
+    if (!std::isfinite(longest) || longest <= 0.0f) {
+        throw orchestrate_error(
+            "voxel_size_for_target: mesh AABB longest extent must be positive "
+            "and finite, got " + std::to_string(longest));
+    }
+    // 1e-5 relative headroom keeps ceil(extent / voxel_size) at exactly
+    // target_size despite float division rounding (see header contract).
+    return longest / static_cast<float>(target_size) * (1.0f + 1e-5f);
+}
+
+// ===========================================================================
 // orchestrate — the primary entry point. Per proposal §3.1 / §3.4 / §3.6.
 // ===========================================================================
 void orchestrate(const std::filesystem::path& obj_path,
@@ -481,14 +525,26 @@ void orchestrate(const std::filesystem::path& obj_path,
         std::to_string(m.materials.size()) + " materials");
 
     // ---- 2. Voxelise ----
+    // target_size (Session 50): derive voxel_size from the loaded mesh so
+    // the auto-sized grid is exactly target_size blocks along the AABB's
+    // longest axis. validate_options() already guaranteed exactly one of
+    // voxel_size / target_size is set.
+    const float voxel_size = opts.target_size.has_value()
+        ? voxel_size_for_target(m, *opts.target_size)
+        : opts.voxel_size;
+    if (opts.target_size.has_value()) {
+        log("[voxel]   target_size=" + std::to_string(*opts.target_size) +
+            " blocks -> voxel_size=" + std::to_string(voxel_size));
+    }
+
     voxel::VoxelizerOptions vopts = voxel::default_options();
-    vopts.voxel_size      = opts.voxel_size;
+    vopts.voxel_size      = voxel_size;
     vopts.axis_convention = opts.axis_convention;
     vopts.dimensions      = opts.voxel_grid_dimensions;
     vopts.origin_world    = opts.voxel_grid_origin_world;
     vopts.max_grid_cells  = opts.max_grid_cells;
 
-    log("[voxel]   voxelizing at voxel_size=" + std::to_string(opts.voxel_size));
+    log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
     const voxel::VoxelGrid grid = voxel::voxelize_mesh(m, vopts);
     const auto dims = grid.dimensions();
     log("[voxel]   grid dims = " + std::to_string(dims[0]) + " x " +

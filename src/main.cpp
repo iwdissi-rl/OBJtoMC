@@ -5,8 +5,8 @@
 // scope (v0.1)").
 //
 // Spec:
-//   Usage: objtomc [options] <input.obj> <world_dir>
-//   Mandatory: --voxel-size <float>
+//   Usage: objtomc [options] <input.{obj,gltf,glb}> <world_dir>
+//   Mandatory: exactly one of --voxel-size <float> / --target-size <int>
 //   Optional:  --axis-convention {y_up,z_up}, --world-origin <x,y,z>,
 //              --level-name <str>, --palette-csv <path>,
 //              --max-grid-cells <int64>, --verbose/-v, --help/-h
@@ -64,8 +64,11 @@ void print_help(std::ostream& os, const char* argv0) {
         "match colours to MC block palette -> write region files + level.dat.\n"
         "Format dispatch is by file extension.\n"
         "\n"
-        "Mandatory:\n"
-        "  --voxel-size <float>            OBJ-space units per voxel. Must be > 0.\n"
+        "Sizing (exactly ONE of the two is mandatory):\n"
+        "  --voxel-size <float>            Mesh-space units per voxel. Must be > 0.\n"
+        "  --target-size <int>             Output size in BLOCKS along the mesh's\n"
+        "                                  longest axis; voxel size is derived from\n"
+        "                                  the mesh bounding box. Must be >= 1.\n"
         "\n"
         "Optional:\n"
         "  --axis-convention {y_up,z_up}   Input mesh axis (default y_up).\n"
@@ -78,8 +81,9 @@ void print_help(std::ostream& os, const char* argv0) {
         "  --verbose, -v                   Print pipeline progress to stderr.\n"
         "  --help, -h                      Print this help and exit 0.\n"
         "\n"
-        "Example:\n"
+        "Examples:\n"
         "  " << argv0 << " --voxel-size 0.002 --verbose bunny.obj bunny-world\n"
+        "  " << argv0 << " --target-size 128 model.glb model-world\n"
         "\n"
         "Exit codes (per pipeline stage):\n"
         "  0=ok 1=unexpected 2=usage 3=mesh 4=voxel 5=palette\n"
@@ -134,7 +138,8 @@ struct ParsedCli {
 ParsedCli parse_cli(int argc, char** argv) {
     ParsedCli cli;
     std::vector<std::string_view> positionals;
-    bool voxel_size_seen = false;
+    bool voxel_size_seen  = false;
+    bool target_size_seen = false;
 
     auto next_arg = [&](int& i, std::string_view flag) -> std::string_view {
         if (i + 1 >= argc) {
@@ -168,6 +173,28 @@ ParsedCli parse_cli(int argc, char** argv) {
                                   "' is out of float range");
             }
             voxel_size_seen = true;
+        } else if (a == "--target-size") {
+            const auto v = next_arg(i, "target-size");
+            try {
+                std::size_t pos = 0;
+                const std::string s{v};
+                const long ts = std::stol(s, &pos);
+                if (pos != s.size()) {
+                    throw usage_error("--target-size: '" + s +
+                                      "' is not an integer");
+                }
+                if (ts < 1 || ts > 100000) {
+                    throw usage_error("--target-size must be in [1, 100000], got " + s);
+                }
+                cli.opts.target_size = static_cast<std::int32_t>(ts);
+            } catch (const std::invalid_argument&) {
+                throw usage_error(std::string("--target-size: '") + std::string(v) +
+                                  "' is not an integer");
+            } catch (const std::out_of_range&) {
+                throw usage_error(std::string("--target-size: '") + std::string(v) +
+                                  "' is out of range");
+            }
+            target_size_seen = true;
         } else if (a == "--axis-convention") {
             const auto v = next_arg(i, "axis-convention");
             if (v == "y_up" || v == "Y_UP") {
@@ -216,8 +243,12 @@ ParsedCli parse_cli(int argc, char** argv) {
                           "(<input.{obj,gltf,glb}> <world_dir>); got " +
                           std::to_string(positionals.size()));
     }
-    if (!voxel_size_seen) {
-        throw usage_error("--voxel-size is mandatory");
+    if (voxel_size_seen && target_size_seen) {
+        throw usage_error("--voxel-size and --target-size are mutually exclusive; "
+                          "give exactly one");
+    }
+    if (!voxel_size_seen && !target_size_seen) {
+        throw usage_error("exactly one of --voxel-size / --target-size is mandatory");
     }
     cli.obj_path  = std::filesystem::path(positionals[0]);
     cli.world_dir = std::filesystem::path(positionals[1]);
