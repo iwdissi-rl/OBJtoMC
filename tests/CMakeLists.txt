@@ -545,6 +545,50 @@ add_executable(sponza_scale_tier4_helper manual/sponza_scale_tier4_helper.cpp)
 target_link_libraries(sponza_scale_tier4_helper PRIVATE orchestrate)
 
 # ---------------------------------------------------------------------------
+# Session 48 — per-voxel texture sampling (v0.3 work item #1). 3 new ctests.
+# Fixtures at tests/fixtures/texture/ are hand-written (quad.obj/quad.mtl)
+# plus a hand-generated 2×2 checker.png (top row green|white, bottom row
+# red|blue) — no external provenance, same posture as the transparent
+# fixture.
+#
+#   texture_sampling — texture-layer unit test: decode exactness, quadrant
+#       sampling with the OBJ V flip, repeat wrap, missing-file → nullptr
+#       fallback, cache identity.
+#   orchestrate_textured_quad — determinism (2 textured runs byte-equal) +
+#       activation (run without the png byte-differs); prints EXPECT lines.
+#   orchestrate_textured_quad_oracle — twoolie/NBT block-exact check of the
+#       16 quad voxels against the helper's matcher-derived EXPECT lines.
+# ---------------------------------------------------------------------------
+set(TEXTURE_FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures/texture)
+
+add_executable(test_texture_sampling test_texture_sampling.cpp)
+target_link_libraries(test_texture_sampling PRIVATE texture)
+add_test(
+    NAME texture_sampling
+    COMMAND test_texture_sampling ${TEXTURE_FIXTURES_DIR}/checker.png
+)
+
+add_executable(test_orchestrate_textured_quad
+               test_orchestrate_textured_quad.cpp)
+target_link_libraries(test_orchestrate_textured_quad
+                      PRIVATE orchestrate matcher palette mesh chunk)
+add_test(
+    NAME orchestrate_textured_quad
+    COMMAND test_orchestrate_textured_quad ${TEXTURE_FIXTURES_DIR}/quad.obj
+)
+
+add_test(
+    NAME orchestrate_textured_quad_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_orchestrate_textured_quad>
+        FIXTURE_OBJ=${TEXTURE_FIXTURES_DIR}/quad.obj
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_orchestrate_textured_quad_oracle.py
+)
+set_tests_properties(orchestrate_textured_quad_oracle
+                     PROPERTIES LABELS "oracle")
+
+# ---------------------------------------------------------------------------
 # Session 40 — GPU voxelizer correctness gates (v0.2 work item #3, slice 2).
 # Two new ctests, both gated on WITH_CUDA_ENABLED so the CPU-only build path
 # does not attempt to compile them. See research/gpu_port_proposal.md §3.6

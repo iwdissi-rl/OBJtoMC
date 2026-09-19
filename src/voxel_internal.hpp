@@ -51,20 +51,58 @@ GridSetup compute_grid_setup(const ::objtomc::mesh::Mesh& mesh_in,
 // Eberly 1999 closest-point-on-triangle disambiguation, tie-break by lower
 // triangle index. Writes into cells (which must be pre-sized to
 // dims[0]*dims[1]*dims[2] and pre-filled with EMPTY = -1).
+//
+// tris receives the WINNING triangle index (index into mesh_in.faces) for
+// each occupied cell, EMPTY for unoccupied cells. Must be pre-sized and
+// pre-filled like cells. The winner is exactly the triangle whose
+// material_id lands in cells — i.e. the (distance, triangle_index)
+// lexicographic minimum under the disambiguation rule. Added Session 48
+// for per-voxel texture sampling (v0.3 item #1): the UV of a voxel is
+// recovered post-hoc from its winning triangle.
 void fill_cells_cpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
-                    std::vector<std::int32_t>& cells);
+                    std::vector<std::int32_t>& cells,
+                    std::vector<std::int32_t>& tris);
 
 #ifdef OBJTOMC_WITH_CUDA
 // GPU cell-filling: same semantics as fill_cells_cpu — byte-identical
-// output on the same input. Defined in src/voxel_gpu.cu.
+// cells AND tris output on the same input. (The GPU path's packed
+// atomicMin key already carries the winning triangle index in its low
+// 32 bits, so tris is extracted from the same key that decides cells —
+// equality is by construction.) Defined in src/voxel_gpu.cu.
 //
 // Throws voxel_error on any CUDA runtime failure (kernel launch, malloc,
 // memcpy). No CUDA state leaks on the throw path (RAII device-buffer
 // wrappers per proposal §3.3 "Device-buffer lifetime discipline").
 void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
-                    std::vector<std::int32_t>& cells);
+                    std::vector<std::int32_t>& cells,
+                    std::vector<std::int32_t>& tris);
 #endif  // OBJTOMC_WITH_CUDA
+
+// ---------------------------------------------------------------------------
+// Helpers exported for the orchestrate layer's per-voxel UV recovery
+// (Session 48). Both are the SAME arithmetic the CPU fill path uses — a
+// caller that recomputes the closest point for a voxel's winning triangle
+// gets bit-identical coordinates to what the disambiguation saw.
+// ---------------------------------------------------------------------------
+
+// Axis swap: Y_UP is identity; Z_UP swaps Y and Z. Identical math to the
+// fill paths' per-vertex swap.
+std::array<float, 3> swap_axes(const std::array<float, 3>& p,
+                               AxisConvention axis) noexcept;
+
+// Eberly 1999 closest point on triangle, additionally reporting the
+// barycentric parameters (s, t) of the closest point under
+// T(s, t) = v0 + s*(v1 - v0) + t*(v2 - v0), with s >= 0, t >= 0,
+// s + t <= 1. Use (1 - s - t, s, t) as the weights on (v0, v1, v2)
+// attributes — e.g. UV interpolation.
+std::array<float, 3> closest_point_on_triangle_bary(
+    const std::array<float, 3>& p,
+    const std::array<float, 3>& v0,
+    const std::array<float, 3>& v1,
+    const std::array<float, 3>& v2,
+    float& s_out,
+    float& t_out) noexcept;
 
 }  // namespace objtomc::voxel::detail

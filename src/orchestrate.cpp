@@ -50,7 +50,11 @@
 #include "objtomc/mesh.hpp"
 #include "objtomc/nbt.hpp"
 #include "objtomc/palette.hpp"
+#include "objtomc/texture.hpp"
 #include "objtomc/voxel.hpp"
+// Project-internal voxel helpers (swap_axes + closest_point_on_triangle_bary)
+// for per-voxel UV recovery — see voxel_internal.hpp Session 48 block.
+#include "voxel_internal.hpp"
 
 namespace objtomc::orch {
 
@@ -510,11 +514,79 @@ void orchestrate(const std::filesystem::path& obj_path,
     default_material.ke  = {0.0f, 0.0f, 0.0f};
     default_material.d   = 1.0f;
 
+    // ---- 4a. Per-voxel texture sampling (Session 48, v0.3 item #1) ----
+    // Resolve + decode each material's map_Kd once. map_Kd paths are
+    // relative to the .mtl location, which the MTL convention co-locates
+    // with the .obj; backslash separators (Windows-authored MTLs are
+    // common in the wild) are normalised to '/'. A missing/undecodable
+    // texture warns once (TextureCache) and that material falls back to
+    // its flat Kd — meshes with no textures on disk (e.g. the repo's
+    // Sponza fixture) take the pre-Session-48 path bit-for-bit.
+    texture::TextureCache tex_cache;
+    std::vector<const texture::Image*> mat_tex(grid.materials().size(), nullptr);
+    if (!m.uvs.empty()) {
+        for (std::size_t i = 0; i < grid.materials().size(); ++i) {
+            std::string map_kd = grid.materials()[i].map_kd;
+            if (map_kd.empty()) continue;
+            std::replace(map_kd.begin(), map_kd.end(), '\\', '/');
+            fs::path tp(map_kd);
+            if (tp.is_relative()) tp = obj_path.parent_path() / tp;
+            mat_tex[i] = tex_cache.load(tp);
+        }
+    }
+    const bool any_texture =
+        std::any_of(mat_tex.begin(), mat_tex.end(),
+                    [](const texture::Image* t) { return t != nullptr; });
+    if (any_texture) log("[texture] per-voxel texture sampling active");
+
+    const auto grid_origin = grid.origin_world();
+    const float vs = grid.voxel_size();
+
     grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
         if (materials_empty) {
             mats.push_back(default_material);
         } else {
-            mats.push_back(grid.materials()[static_cast<std::size_t>(mid)]);
+            mesh::Material mat = grid.materials()[static_cast<std::size_t>(mid)];
+            const texture::Image* tex =
+                any_texture ? mat_tex[static_cast<std::size_t>(mid)] : nullptr;
+            if (tex != nullptr) {
+                // Recover the UV at this voxel's winning triangle: the
+                // closest point on the triangle to the voxel centre is
+                // exactly the point the disambiguation measured (same
+                // arithmetic via closest_point_on_triangle_bary), and its
+                // barycentric (s, t) interpolates the corner UVs.
+                const auto tri = grid.triangle_at_unchecked(vx, vy, vz);
+                const auto& face = m.faces[static_cast<std::size_t>(tri)];
+                if (face.uv_indices[0] >= 0 &&
+                    face.uv_indices[1] >= 0 &&
+                    face.uv_indices[2] >= 0) {
+                    const auto v0 = voxel::detail::swap_axes(
+                        m.positions[face.position_indices[0]], vopts.axis_convention);
+                    const auto v1 = voxel::detail::swap_axes(
+                        m.positions[face.position_indices[1]], vopts.axis_convention);
+                    const auto v2 = voxel::detail::swap_axes(
+                        m.positions[face.position_indices[2]], vopts.axis_convention);
+                    const std::array<float, 3> box_centre{
+                        grid_origin[0] + (static_cast<float>(vx) + 0.5f) * vs,
+                        grid_origin[1] + (static_cast<float>(vy) + 0.5f) * vs,
+                        grid_origin[2] + (static_cast<float>(vz) + 0.5f) * vs};
+                    float s = 0.0f;
+                    float t = 0.0f;
+                    voxel::detail::closest_point_on_triangle_bary(
+                        box_centre, v0, v1, v2, s, t);
+                    const float w0 = 1.0f - s - t;
+                    const auto& uv0 = m.uvs[static_cast<std::size_t>(face.uv_indices[0])];
+                    const auto& uv1 = m.uvs[static_cast<std::size_t>(face.uv_indices[1])];
+                    const auto& uv2 = m.uvs[static_cast<std::size_t>(face.uv_indices[2])];
+                    const float u = w0 * uv0[0] + s * uv1[0] + t * uv2[0];
+                    const float v = w0 * uv0[1] + s * uv1[1] + t * uv2[1];
+                    // Sampled texel replaces the flat Kd; ke/d/illum are
+                    // inherited from the parent material so emission and
+                    // transparency branch selection are unaffected.
+                    mat.kd = texture::sample_nearest(*tex, u, v);
+                }
+            }
+            mats.push_back(std::move(mat));
         }
         positions.push_back(voxel_to_world(vx, vy, vz, opts.world_origin));
     });

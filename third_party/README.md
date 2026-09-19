@@ -74,6 +74,13 @@ session, not a quiet bump:
   (tri-licensed MIT / Apache-2.0 / BSL-1.0) inline — see
   DECISIONS.md 2026-06-18 "Adopt tinyobjloader (pinned,
   vendored) for OBJ parsing".
+- `stb/` — single-header image decoder (`stb_image.h` v2.30),
+  dual public-domain / MIT. Pinned to `master`-branch SHA
+  `013ac3beddff3dbffafd5177e7972067cd2b5083` (last upstream commit
+  touching `stb_image.h`, 2024-05-31). Acquired 2026-09-14
+  (Session 48). Used by the texture layer (`src/texture.cpp`) to
+  decode `map_Kd` diffuse textures for per-voxel sampling (v0.3
+  item #1).
 - `minecraft-data/` — JSON data feed (no source code), MIT.
   Pinned to `master`-branch SHA
   `d4d349218383bc0befcdd8bb0adac135234fe5d7` (Release 3.111.0,

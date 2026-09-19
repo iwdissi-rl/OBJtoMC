@@ -535,14 +535,19 @@ __global__ void disambiguation_kernel(
 // ---------------------------------------------------------------------------
 // postprocess_kernel — one thread per voxel. Extract triangle_index from
 // low 32 bits of the winning packed key, look up material_id from the
-// per-triangle table, write to cells. Unhit voxels (key == ULLONG_MAX)
-// stay EMPTY = -1.
+// per-triangle table, write to cells; also write the triangle index itself
+// to tris (Session 48, per-voxel texture sampling — the tris output is
+// derived from the SAME winning key that decides cells, so CPU/GPU
+// byte-equality of tris follows from the packed-key determinism argument
+// in the disambiguation_kernel comment). Unhit voxels (key == ULLONG_MAX)
+// stay EMPTY = -1 in both outputs.
 // ---------------------------------------------------------------------------
 __global__ void postprocess_kernel(
     const unsigned long long* best_key,
     std::size_t               n_voxels,
     const std::int32_t*       tri_material,
-    std::int32_t*             cells)
+    std::int32_t*             cells,
+    std::int32_t*             tris)
 {
     const std::size_t stride =
         static_cast<std::size_t>(blockDim.x) *
@@ -557,10 +562,12 @@ __global__ void postprocess_kernel(
         const unsigned long long k = best_key[i];
         if (k == kEmptyKey) {
             cells[i] = kEmpty;
+            tris[i]  = kEmpty;
         } else {
             const std::uint32_t tri_idx =
                 static_cast<std::uint32_t>(k & 0xFFFFFFFFULL);
             cells[i] = tri_material[tri_idx];
+            tris[i]  = static_cast<std::int32_t>(tri_idx);
         }
         i += stride;
     }
@@ -574,7 +581,8 @@ __global__ void postprocess_kernel(
 // ===========================================================================
 void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
-                    std::vector<std::int32_t>& cells)
+                    std::vector<std::int32_t>& cells,
+                    std::vector<std::int32_t>& tris)
 {
     // 0. Verify at least one CUDA device is visible. Prompt-required
     // (opts.prefer_gpu == ON must throw when no device is present per
@@ -623,6 +631,7 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
     DevBuf<std::int32_t>       d_material(n_tris);
     DevBuf<unsigned long long> d_best_key(n_voxels);
     DevBuf<std::int32_t>       d_cells(n_voxels);
+    DevBuf<std::int32_t>       d_win_tri(n_voxels);
     // cuda_voxelizer's bitmap: ceil(n_voxels / 32) uint32 words.
     const std::size_t bitmap_words = (n_voxels + 31u) / 32u;
     DevBuf<unsigned int>       d_bitmap(bitmap_words);
@@ -713,14 +722,18 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
             n_blocks_full, static_cast<std::size_t>(65535)));
         postprocess_kernel<<<kGrid, kBlock>>>(
             d_best_key.data(), n_voxels,
-            d_material.data(), d_cells.data());
+            d_material.data(), d_cells.data(), d_win_tri.data());
         OBJTOMC_CUDA_CHECK(cudaGetLastError());
     }
 
-    // 8. Sync + copyback into the caller-provided std::vector.
+    // 8. Sync + copyback into the caller-provided std::vectors.
     OBJTOMC_CUDA_CHECK(cudaDeviceSynchronize());
     if (cells.size() != n_voxels) cells.assign(n_voxels, EMPTY);
+    if (tris.size()  != n_voxels) tris.assign(n_voxels, EMPTY);
     OBJTOMC_CUDA_CHECK(cudaMemcpy(cells.data(), d_cells.data(),
+                                  n_voxels * sizeof(std::int32_t),
+                                  cudaMemcpyDeviceToHost));
+    OBJTOMC_CUDA_CHECK(cudaMemcpy(tris.data(), d_win_tri.data(),
                                   n_voxels * sizeof(std::int32_t),
                                   cudaMemcpyDeviceToHost));
 

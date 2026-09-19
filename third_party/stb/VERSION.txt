@@ -1,0 +1,29 @@
+upstream:        https://github.com/nothings/stb
+license:         dual: public domain (Unlicense-style) OR MIT — choose either
+license-spdx:    MIT OR Unlicense
+git-sha:         013ac3beddff3dbffafd5177e7972067cd2b5083
+git-ref:         master    (branch)
+acquired:        2026-09-14
+acquired-by:     Session 48 (per-voxel texture sampling, v0.3 item #1)
+audited-by:      Session 48 (direct-implementation mandate, DECISIONS.md
+                 2026-09-14 "maintainer scope directive")
+
+source-url:      https://raw.githubusercontent.com/nothings/stb/013ac3beddff3dbffafd5177e7972067cd2b5083/stb_image.h
+file-sha256:     594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+file-size:       283010 bytes  (7988 lines)
+file-version:    stb_image v2.30
+
+license-url:     https://raw.githubusercontent.com/nothings/stb/013ac3beddff3dbffafd5177e7972067cd2b5083/LICENSE
+license-sha256:  bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63
+
+notes:           Vendored single-file header image decoder (PNG/JPG/BMP/TGA/
+                 GIF/PSD/PIC/PNM). Used by the texture layer (src/texture.cpp)
+                 to decode map_Kd diffuse textures for per-voxel sampling.
+                 Read-only per the tinyobjloader vendoring precedent
+                 (DECISIONS.md 2026-06-18 "Vendoring pattern for third-party
+                 C++ deps"); customisation only via upstream-blessed
+                 compile-time defines (STB_IMAGE_IMPLEMENTATION +
+                 STBI_ONLY_* format selectors) in src/texture.cpp. The
+                 git-sha above is the load-bearing record; git-ref is
+                 informational. This sha is the last upstream commit touching
+                 stb_image.h as of acquisition date (v2.30, 2024-05-31).

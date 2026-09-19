@@ -31,6 +31,29 @@ the project eventually declares.
 - **Used by:** the OBJ Loading layer
   (`include/objtomc/mesh.hpp` + `src/mesh.cpp`).
 
+## stb (stb_image)
+
+- **Path in repo:** `third_party/stb/`
+- **Upstream:** https://github.com/nothings/stb
+- **Pinned commit:** `013ac3beddff3dbffafd5177e7972067cd2b5083`
+  (last upstream commit touching `stb_image.h` as of vendor-time;
+  `stb_image.h` v2.30, 2024-05-31)
+- **Acquired:** 2026-09-14 (Session 48)
+- **Audited:** 2026-09-14 (Session 48 — single-header, no
+  sub-dependencies, dual-licensed)
+- **License:** dual — public domain (Unlicense-style) **OR** MIT,
+  recipient's choice (SPDX: `MIT OR Unlicense`). Full text at
+  `third_party/stb/LICENSE`.
+- **Copyright:** Copyright (c) 2017 Sean Barrett (MIT alternative);
+  public-domain dedication under Alternative B.
+- **Vendored content:** `stb_image.h` only (PNG/JPG/BMP/TGA/GIF/
+  PSD/PIC/PNM decoder; we compile with `STBI_ONLY_*` selectors —
+  see `src/texture.cpp`).
+- **Embedded sub-dependency:** none.
+- **Used by:** the texture layer (`include/objtomc/texture.hpp` +
+  `src/texture.cpp`) for per-voxel `map_Kd` diffuse-texture
+  sampling (v0.3 item #1, Session 48).
+
 ## PrismarineJS/minecraft-data
 
 - **Path in repo:** `third_party/minecraft-data/`

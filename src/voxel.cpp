@@ -288,95 +288,20 @@ inline bool triangle_aabb_overlap(const Vec3& v0_world,
 //
 // The code dispatches on the sign of s, t, and (s + t - 1) and on the
 // gradient of Q at the candidate edge, picking the right clamping branch.
+//
+// The full body lives in detail::closest_point_on_triangle_bary (Session
+// 48: the orchestrate layer needs the barycentric (s, t) for per-voxel UV
+// recovery). This wrapper preserves the fill-path call site unchanged —
+// same arithmetic, so cells output is byte-identical to pre-Session-48.
 // ===========================================================================
 inline Vec3 closest_point_on_triangle(const Vec3& p,
                                       const Vec3& v0,
                                       const Vec3& v1,
                                       const Vec3& v2) noexcept {
-    const Vec3 E0 = v_sub(v1, v0);
-    const Vec3 E1 = v_sub(v2, v0);
-    const Vec3 D  = v_sub(v0, p);
-
-    const float a = v_dot(E0, E0);
-    const float b = v_dot(E0, E1);
-    const float c = v_dot(E1, E1);
-    const float d = v_dot(E0, D);
-    const float e = v_dot(E1, D);
-    // const float f = v_dot(D, D);  // constant term — not needed for argmin
-
-    const float det = a * c - b * b;
-    float s = b * e - c * d;
-    float t = b * d - a * e;
-
-    if (s + t <= det) {
-        if (s < 0.0f) {
-            if (t < 0.0f) {
-                // ---------- region 4 ----------
-                if (d < 0.0f) {
-                    t = 0.0f;
-                    s = (-d >= a) ? 1.0f : (-d / a);
-                } else {
-                    s = 0.0f;
-                    t = (e >= 0.0f) ? 0.0f : ((-e >= c) ? 1.0f : (-e / c));
-                }
-            } else {
-                // ---------- region 3 ----------
-                s = 0.0f;
-                t = (e >= 0.0f) ? 0.0f : ((-e >= c) ? 1.0f : (-e / c));
-            }
-        } else if (t < 0.0f) {
-            // ---------- region 5 ----------
-            t = 0.0f;
-            s = (d >= 0.0f) ? 0.0f : ((-d >= a) ? 1.0f : (-d / a));
-        } else {
-            // ---------- region 0 (interior) ----------
-            const float inv_det = 1.0f / det;
-            s *= inv_det;
-            t *= inv_det;
-        }
-    } else {
-        if (s < 0.0f) {
-            // ---------- region 2 ----------
-            const float tmp0 = b + d;
-            const float tmp1 = c + e;
-            if (tmp1 > tmp0) {
-                const float numer = tmp1 - tmp0;
-                const float denom = a - 2.0f * b + c;
-                s = (numer >= denom) ? 1.0f : (numer / denom);
-                t = 1.0f - s;
-            } else {
-                s = 0.0f;
-                t = (tmp1 <= 0.0f) ? 1.0f : ((e >= 0.0f) ? 0.0f : (-e / c));
-            }
-        } else if (t < 0.0f) {
-            // ---------- region 6 ----------
-            const float tmp0 = b + e;
-            const float tmp1 = a + d;
-            if (tmp1 > tmp0) {
-                const float numer = tmp1 - tmp0;
-                const float denom = a - 2.0f * b + c;
-                t = (numer >= denom) ? 1.0f : (numer / denom);
-                s = 1.0f - t;
-            } else {
-                t = 0.0f;
-                s = (tmp1 <= 0.0f) ? 1.0f : ((d >= 0.0f) ? 0.0f : (-d / a));
-            }
-        } else {
-            // ---------- region 1 ----------
-            const float numer = (c + e) - (b + d);
-            if (numer <= 0.0f) {
-                s = 0.0f;
-            } else {
-                const float denom = a - 2.0f * b + c;
-                s = (numer >= denom) ? 1.0f : (numer / denom);
-            }
-            t = 1.0f - s;
-        }
-    }
-
-    return {v0[0] + s * E0[0] + t * E1[0],
-            v0[1] + s * E0[1] + t * E1[1],
-            v0[2] + s * E0[2] + t * E1[2]};
+    float s_unused;
+    float t_unused;
+    return detail::closest_point_on_triangle_bary(p, v0, v1, v2,
+                                                  s_unused, t_unused);
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +414,25 @@ std::int32_t VoxelGrid::at_unchecked(int x, int y, int z) const noexcept {
     return cells_[cell_index(x, y, z, dimensions_)];
 }
 
+std::int32_t VoxelGrid::triangle_at(int x, int y, int z) const {
+    if (x < 0 || x >= dimensions_[0] ||
+        y < 0 || y >= dimensions_[1] ||
+        z < 0 || z >= dimensions_[2]) {
+        throw voxel_error(
+            "VoxelGrid::triangle_at: index (" + std::to_string(x) + ", " +
+            std::to_string(y) + ", " + std::to_string(z) +
+            ") out of bounds for dimensions (" +
+            std::to_string(dimensions_[0]) + ", " +
+            std::to_string(dimensions_[1]) + ", " +
+            std::to_string(dimensions_[2]) + ")");
+    }
+    return tris_[cell_index(x, y, z, dimensions_)];
+}
+
+std::int32_t VoxelGrid::triangle_at_unchecked(int x, int y, int z) const noexcept {
+    return tris_[cell_index(x, y, z, dimensions_)];
+}
+
 bool VoxelGrid::is_occupied(int x, int y, int z) const {
     return at(x, y, z) != EMPTY;
 }
@@ -514,6 +458,118 @@ std::span<const mesh::Material> VoxelGrid::materials() const noexcept {
 // See src/voxel_internal.hpp for the byte-equality rationale.
 // ---------------------------------------------------------------------------
 namespace detail {
+
+// ---------------------------------------------------------------------------
+// detail::swap_axes — the fill paths' per-vertex axis swap, exported for
+// the orchestrate layer's UV recovery (see voxel_internal.hpp).
+// ---------------------------------------------------------------------------
+std::array<float, 3> swap_axes(const std::array<float, 3>& p,
+                               AxisConvention axis) noexcept {
+    return apply_axis_swap(p, axis);
+}
+
+// ---------------------------------------------------------------------------
+// detail::closest_point_on_triangle_bary — Eberly 1999 body (moved here
+// verbatim from the pre-Session-48 anonymous-namespace function; see the
+// algorithm comment block above closest_point_on_triangle). The final
+// (s, t) after region clamping ARE the barycentric parameters of the
+// closest point; they are reported so callers can interpolate per-vertex
+// attributes (UVs) at the closest point.
+// ---------------------------------------------------------------------------
+std::array<float, 3> closest_point_on_triangle_bary(
+    const std::array<float, 3>& p,
+    const std::array<float, 3>& v0,
+    const std::array<float, 3>& v1,
+    const std::array<float, 3>& v2,
+    float& s_out,
+    float& t_out) noexcept {
+    const Vec3 E0 = v_sub(v1, v0);
+    const Vec3 E1 = v_sub(v2, v0);
+    const Vec3 D  = v_sub(v0, p);
+
+    const float a = v_dot(E0, E0);
+    const float b = v_dot(E0, E1);
+    const float c = v_dot(E1, E1);
+    const float d = v_dot(E0, D);
+    const float e = v_dot(E1, D);
+    // const float f = v_dot(D, D);  // constant term — not needed for argmin
+
+    const float det = a * c - b * b;
+    float s = b * e - c * d;
+    float t = b * d - a * e;
+
+    if (s + t <= det) {
+        if (s < 0.0f) {
+            if (t < 0.0f) {
+                // ---------- region 4 ----------
+                if (d < 0.0f) {
+                    t = 0.0f;
+                    s = (-d >= a) ? 1.0f : (-d / a);
+                } else {
+                    s = 0.0f;
+                    t = (e >= 0.0f) ? 0.0f : ((-e >= c) ? 1.0f : (-e / c));
+                }
+            } else {
+                // ---------- region 3 ----------
+                s = 0.0f;
+                t = (e >= 0.0f) ? 0.0f : ((-e >= c) ? 1.0f : (-e / c));
+            }
+        } else if (t < 0.0f) {
+            // ---------- region 5 ----------
+            t = 0.0f;
+            s = (d >= 0.0f) ? 0.0f : ((-d >= a) ? 1.0f : (-d / a));
+        } else {
+            // ---------- region 0 (interior) ----------
+            const float inv_det = 1.0f / det;
+            s *= inv_det;
+            t *= inv_det;
+        }
+    } else {
+        if (s < 0.0f) {
+            // ---------- region 2 ----------
+            const float tmp0 = b + d;
+            const float tmp1 = c + e;
+            if (tmp1 > tmp0) {
+                const float numer = tmp1 - tmp0;
+                const float denom = a - 2.0f * b + c;
+                s = (numer >= denom) ? 1.0f : (numer / denom);
+                t = 1.0f - s;
+            } else {
+                s = 0.0f;
+                t = (tmp1 <= 0.0f) ? 1.0f : ((e >= 0.0f) ? 0.0f : (-e / c));
+            }
+        } else if (t < 0.0f) {
+            // ---------- region 6 ----------
+            const float tmp0 = b + e;
+            const float tmp1 = a + d;
+            if (tmp1 > tmp0) {
+                const float numer = tmp1 - tmp0;
+                const float denom = a - 2.0f * b + c;
+                t = (numer >= denom) ? 1.0f : (numer / denom);
+                s = 1.0f - t;
+            } else {
+                t = 0.0f;
+                s = (tmp1 <= 0.0f) ? 1.0f : ((d >= 0.0f) ? 0.0f : (-d / a));
+            }
+        } else {
+            // ---------- region 1 ----------
+            const float numer = (c + e) - (b + d);
+            if (numer <= 0.0f) {
+                s = 0.0f;
+            } else {
+                const float denom = a - 2.0f * b + c;
+                s = (numer >= denom) ? 1.0f : (numer / denom);
+            }
+            t = 1.0f - s;
+        }
+    }
+
+    s_out = s;
+    t_out = t;
+    return {v0[0] + s * E0[0] + t * E1[0],
+            v0[1] + s * E0[1] + t * E1[1],
+            v0[2] + s * E0[2] + t * E1[2]};
+}
 
 GridSetup compute_grid_setup(const mesh::Mesh& mesh_in,
                              const VoxelizerOptions& opts) {
@@ -598,7 +654,8 @@ GridSetup compute_grid_setup(const mesh::Mesh& mesh_in,
 // ---------------------------------------------------------------------------
 void fill_cells_cpu(const mesh::Mesh& mesh_in,
                     const GridSetup& setup,
-                    std::vector<std::int32_t>& cells) {
+                    std::vector<std::int32_t>& cells,
+                    std::vector<std::int32_t>& tris) {
     const auto& dims = setup.dims;
     const auto& origin = setup.origin;
     const float vs   = setup.voxel_size;
@@ -680,9 +737,11 @@ void fill_cells_cpu(const mesh::Mesh& mesh_in,
                     const std::int32_t current = cells[idx];
                     if (current == EMPTY) {
                         cells[idx] = mid;
+                        tris[idx] = static_cast<std::int32_t>(face_idx);
                         best_dist[idx] = dist;
                     } else if (dist < best_dist[idx]) {
                         cells[idx] = mid;
+                        tris[idx] = static_cast<std::int32_t>(face_idx);
                         best_dist[idx] = dist;
                     }
                     // (dist == best_dist[idx]): equal-distance case.
@@ -730,6 +789,8 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
 
     std::vector<std::int32_t> cells(
         static_cast<std::size_t>(cells_total), EMPTY);
+    std::vector<std::int32_t> tris(
+        static_cast<std::size_t>(cells_total), EMPTY);
 
     bool use_gpu = false;
 #ifdef OBJTOMC_WITH_CUDA
@@ -740,13 +801,13 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
         use_gpu = true;
     }
     if (use_gpu) {
-        detail::fill_cells_gpu(mesh_in, setup, cells);
+        detail::fill_cells_gpu(mesh_in, setup, cells, tris);
     } else {
-        detail::fill_cells_cpu(mesh_in, setup, cells);
+        detail::fill_cells_cpu(mesh_in, setup, cells, tris);
     }
 #else
     (void)use_gpu;
-    detail::fill_cells_cpu(mesh_in, setup, cells);
+    detail::fill_cells_cpu(mesh_in, setup, cells, tris);
 #endif
 
     // Friend-access construction of the immutable VoxelGrid. voxelize_mesh
@@ -758,6 +819,7 @@ VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
     grid.voxel_size_      = setup.voxel_size;
     grid.axis_convention_ = setup.axis;
     grid.cells_           = std::move(cells);
+    grid.tris_            = std::move(tris);
     grid.materials_       = mesh_in.materials;   // copy
     return grid;
 }

@@ -157,6 +157,16 @@ add_library(tinyobjloader INTERFACE)
 target_include_directories(tinyobjloader SYSTEM
     INTERFACE ${CMAKE_SOURCE_DIR}/third_party/tinyobjloader)
 
+# ---------------------------------------------------------------------------
+# third_party/stb/ — vendored single-header image decoder (dual public
+# domain / MIT). Same INTERFACE + SYSTEM-include pattern as tinyobjloader;
+# pin + provenance in third_party/stb/VERSION.txt. Linked PRIVATE by the
+# texture layer only — no downstream target sees stb_image.h transitively.
+# ---------------------------------------------------------------------------
+add_library(stb INTERFACE)
+target_include_directories(stb SYSTEM
+    INTERFACE ${CMAKE_SOURCE_DIR}/third_party/stb)
+
 add_library(nbt STATIC src/nbt.cpp)
 target_include_directories(nbt PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
@@ -174,6 +184,16 @@ target_link_libraries(chunk PUBLIC nbt)
 add_library(mesh STATIC src/mesh.cpp)
 target_include_directories(mesh PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mesh PRIVATE tinyobjloader)
+
+# ---------------------------------------------------------------------------
+# texture — map_Kd diffuse-texture decode + nearest-neighbour UV sampling
+# for per-voxel colour (Session 48, v0.3 item #1). Public header is
+# pure-stdlib; stb_image is linked PRIVATE per the mesh/tinyobjloader
+# wrapping discipline (proposal §5.9 precedent).
+# ---------------------------------------------------------------------------
+add_library(texture STATIC src/texture.cpp)
+target_include_directories(texture PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(texture PRIVATE stb)
 
 # ---------------------------------------------------------------------------
 # palette — Block Palette DB layer. Public header is pure-stdlib; the loader
@@ -293,7 +313,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE ZLIB::ZLIB)
+    PRIVATE texture ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

@@ -120,6 +120,14 @@ public:
     std::int32_t           at(int x, int y, int z) const;
     std::int32_t           at_unchecked(int x, int y, int z) const noexcept;
 
+    // Winning-triangle access (Session 48, per-voxel texture sampling).
+    // Returns the index into the source mesh's faces of the triangle that
+    // won the disambiguation for this voxel (i.e. the one whose
+    // material_id at() returns), or EMPTY for unoccupied voxels.
+    // triangle_at() is bounds-checked like at(); throws voxel_error on OOB.
+    std::int32_t           triangle_at(int x, int y, int z) const;
+    std::int32_t           triangle_at_unchecked(int x, int y, int z) const noexcept;
+
     // Occupancy queries.
     bool                   is_occupied(int x, int y, int z) const;
     std::size_t            occupied_count() const;   // linear scan; not cached
@@ -147,6 +155,7 @@ private:
     float                          voxel_size_;
     AxisConvention                 axis_convention_;
     std::vector<std::int32_t>      cells_;       // size = dim_x*dim_y*dim_z; default-filled to EMPTY
+    std::vector<std::int32_t>      tris_;        // same shape as cells_; winning face index per occupied cell, EMPTY elsewhere
     std::vector<mesh::Material>    materials_;   // copy of source mesh.materials at voxelise time
 };
 
