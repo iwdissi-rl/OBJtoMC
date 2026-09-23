@@ -42,6 +42,20 @@ struct OrchestrateOptions {
     // ----- Voxel → block coord transform -----------------------------------
     std::array<std::int32_t, 3>              world_origin;          // default {0, -60, 0}
 
+    // ----- Tiling (Session 57, v0.4 — research/scale_v04_proposal.md §3.5) --
+    // AUTO (default): monolithic pipeline when the full voxel grid fits
+    //   max_grid_cells (every pre-v0.4 invocation byte-stable by
+    //   construction); region-aligned tiled streaming otherwise.
+    // ON:  always tile — one 512-block-aligned XZ window per Anvil region;
+    //   per tile: voxelize → match → build → write ONE region file → free.
+    // OFF: always monolithic; an oversized grid keeps throwing the
+    //   pre-v0.4 voxel_error.
+    // Tiled and monolithic output are byte-identical (ctest
+    // orchestrate_tiled_equality). In tiled mode max_grid_cells caps the
+    // PER-TILE grid, not the whole world.
+    enum class TilingMode { AUTO, ON, OFF };
+    TilingMode                               tiling;                // default AUTO
+
     // ----- Matcher (forwarded verbatim) -----------------------------------
     matcher::MatcherOptions                  matcher_opts;
 

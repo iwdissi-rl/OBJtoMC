@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Tiled voxelisation driver — Session 56 (v0.4 item #1, proposal §3.1–§3.3).
-// See include/objtomc/tiling.hpp for the byte-equality contract.
+// Tiled voxelisation driver — Sessions 56–57 (v0.4 item #1, proposal
+// §3.1–§3.3). See include/objtomc/tiling.hpp for the byte-equality contract.
 // ---------------------------------------------------------------------------
 #include "objtomc/tiling.hpp"
 
@@ -25,62 +25,56 @@ inline int idx_clamp(float v, float origin, float vs, int axis_dim) noexcept {
                       0, axis_dim - 1);
 }
 
-}  // namespace
+// Floor division (round toward negative infinity) for region-aligned
+// boundaries at negative world coordinates.
+inline int floor_div(int a, int b) noexcept {
+    return (a >= 0) ? a / b : -((-a + b - 1) / b);
+}
 
-TilePlan plan_tiles(const mesh::Mesh& mesh,
-                    const voxel::VoxelizerOptions& opts,
-                    const int tile_cells_x,
-                    const int tile_cells_z) {
-    if (tile_cells_x < 1 || tile_cells_z < 1) {
-        throw voxel::voxel_error(
-            "plan_tiles: tile_cells must be >= 1, got " +
-            std::to_string(tile_cells_x) + " x " + std::to_string(tile_cells_z));
-    }
+voxel::detail::GridSetup resolve_frame(const mesh::Mesh& mesh,
+                                       const voxel::VoxelizerOptions& opts) {
     if (opts.max_grid_cells <= 0) {
         throw voxel::voxel_error(
             "voxelize_mesh: max_grid_cells must be positive, got " +
             std::to_string(opts.max_grid_cells));
     }
-
     // Resolve the FULL grid frame with the size cap lifted — the whole
     // point of tiling is that the monolithic grid may exceed
-    // max_grid_cells; the cap is enforced PER TILE below (proposal §3.5).
+    // max_grid_cells; the cap is enforced PER TILE (proposal §3.5).
     // All other validation (mesh shape, finiteness, voxel_size,
     // explicit-dimension coverage) is voxelize_mesh's, unchanged.
     voxel::VoxelizerOptions frame_opts = opts;
     frame_opts.max_grid_cells = std::numeric_limits<std::int64_t>::max();
-    const voxel::detail::GridSetup setup =
-        voxel::detail::compute_grid_setup(mesh, frame_opts);
+    return voxel::detail::compute_grid_setup(mesh, frame_opts);
+}
 
+// Shared plan body: per-tile cap check + exact face binning. tix/tiz map
+// a GLOBAL cell index to its tile column/row; both decompositions in this
+// file give contiguous tile ranges for contiguous cell ranges.
+template <typename TixFn, typename TizFn>
+TilePlan build_plan(const mesh::Mesh& mesh,
+                    const voxel::detail::GridSetup& setup,
+                    std::int64_t max_grid_cells,
+                    std::vector<Tile> tiles,
+                    int ntx,
+                    TixFn tix, TizFn tiz) {
     TilePlan plan;
     plan.grid_dims   = setup.dims;
     plan.grid_origin = setup.origin;
     plan.voxel_size  = setup.voxel_size;
+    plan.tiles       = std::move(tiles);
 
-    const int ntx = (setup.dims[0] + tile_cells_x - 1) / tile_cells_x;
-    const int ntz = (setup.dims[2] + tile_cells_z - 1) / tile_cells_z;
-    plan.tiles.reserve(static_cast<std::size_t>(ntx) *
-                       static_cast<std::size_t>(ntz));
-    for (int tz = 0; tz < ntz; ++tz) {
-        for (int tx = 0; tx < ntx; ++tx) {
-            Tile t;
-            t.offset_xz = {tx * tile_cells_x, tz * tile_cells_z};
-            t.dims_xz   = {std::min(tile_cells_x,
-                                    setup.dims[0] - t.offset_xz[0]),
-                           std::min(tile_cells_z,
-                                    setup.dims[2] - t.offset_xz[1])};
-            const std::int64_t tile_cells =
-                static_cast<std::int64_t>(t.dims_xz[0]) *
-                static_cast<std::int64_t>(setup.dims[1]) *
-                static_cast<std::int64_t>(t.dims_xz[1]);
-            if (tile_cells > opts.max_grid_cells) {
-                throw voxel::voxel_error(
-                    "plan_tiles: tile size " + std::to_string(tile_cells) +
-                    " cells exceeds max_grid_cells " +
-                    std::to_string(opts.max_grid_cells) +
-                    " (shrink tile_cells_x/z)");
-            }
-            plan.tiles.push_back(t);
+    for (const Tile& t : plan.tiles) {
+        const std::int64_t tile_cells =
+            static_cast<std::int64_t>(t.dims_xz[0]) *
+            static_cast<std::int64_t>(setup.dims[1]) *
+            static_cast<std::int64_t>(t.dims_xz[1]);
+        if (tile_cells > max_grid_cells) {
+            throw voxel::voxel_error(
+                "plan_tiles: tile size " + std::to_string(tile_cells) +
+                " cells exceeds max_grid_cells " +
+                std::to_string(max_grid_cells) +
+                " (shrink the tile decomposition)");
         }
     }
     plan.tile_faces.resize(plan.tiles.size());
@@ -115,9 +109,8 @@ TilePlan plan_tiles(const mesh::Mesh& mesh,
         const int z_hi = idx_clamp(zmax, setup.origin[2], setup.voxel_size,
                                    setup.dims[2]);
 
-        for (int tz = z_lo / tile_cells_z; tz <= z_hi / tile_cells_z; ++tz) {
-            for (int tx = x_lo / tile_cells_x; tx <= x_hi / tile_cells_x;
-                 ++tx) {
+        for (int tz = tiz(z_lo); tz <= tiz(z_hi); ++tz) {
+            for (int tx = tix(x_lo); tx <= tix(x_hi); ++tx) {
                 plan.tile_faces[static_cast<std::size_t>(tz) *
                                     static_cast<std::size_t>(ntx) +
                                 static_cast<std::size_t>(tx)]
@@ -129,14 +122,95 @@ TilePlan plan_tiles(const mesh::Mesh& mesh,
     return plan;
 }
 
+}  // namespace
+
+TilePlan plan_tiles(const mesh::Mesh& mesh,
+                    const voxel::VoxelizerOptions& opts,
+                    const int tile_cells_x,
+                    const int tile_cells_z) {
+    if (tile_cells_x < 1 || tile_cells_z < 1) {
+        throw voxel::voxel_error(
+            "plan_tiles: tile_cells must be >= 1, got " +
+            std::to_string(tile_cells_x) + " x " + std::to_string(tile_cells_z));
+    }
+    const voxel::detail::GridSetup setup = resolve_frame(mesh, opts);
+
+    const int ntx = (setup.dims[0] + tile_cells_x - 1) / tile_cells_x;
+    const int ntz = (setup.dims[2] + tile_cells_z - 1) / tile_cells_z;
+    std::vector<Tile> tiles;
+    tiles.reserve(static_cast<std::size_t>(ntx) *
+                  static_cast<std::size_t>(ntz));
+    for (int tz = 0; tz < ntz; ++tz) {
+        for (int tx = 0; tx < ntx; ++tx) {
+            Tile t;
+            t.offset_xz = {tx * tile_cells_x, tz * tile_cells_z};
+            t.dims_xz   = {std::min(tile_cells_x,
+                                    setup.dims[0] - t.offset_xz[0]),
+                           std::min(tile_cells_z,
+                                    setup.dims[2] - t.offset_xz[1])};
+            tiles.push_back(t);
+        }
+    }
+    return build_plan(mesh, setup, opts.max_grid_cells, std::move(tiles),
+                      ntx,
+                      [&](int cell) { return cell / tile_cells_x; },
+                      [&](int cell) { return cell / tile_cells_z; });
+}
+
+TilePlan plan_tiles_aligned(const mesh::Mesh& mesh,
+                            const voxel::VoxelizerOptions& opts,
+                            const std::array<int, 2>& world_origin_xz,
+                            const int block_span) {
+    if (block_span < 1) {
+        throw voxel::voxel_error(
+            "plan_tiles_aligned: block_span must be >= 1, got " +
+            std::to_string(block_span));
+    }
+    const voxel::detail::GridSetup setup = resolve_frame(mesh, opts);
+
+    // Cell c maps to world block world_origin + c; tile boundaries fall
+    // where the world coordinate crosses a multiple of block_span, so a
+    // tile's output lands entirely in one span (one Anvil region for
+    // block_span = 512; 512 is a multiple of 16, so tile boundaries are
+    // also chunk boundaries — no chunk ever spans two tiles). First/last
+    // tiles clip to the grid.
+    const int wx0 = world_origin_xz[0];
+    const int wz0 = world_origin_xz[1];
+    const int rx_min = floor_div(wx0, block_span);
+    const int rx_max = floor_div(wx0 + setup.dims[0] - 1, block_span);
+    const int rz_min = floor_div(wz0, block_span);
+    const int rz_max = floor_div(wz0 + setup.dims[2] - 1, block_span);
+    const int ntx = rx_max - rx_min + 1;
+    const int ntz = rz_max - rz_min + 1;
+
+    std::vector<Tile> tiles;
+    tiles.reserve(static_cast<std::size_t>(ntx) *
+                  static_cast<std::size_t>(ntz));
+    for (int rz = rz_min; rz <= rz_max; ++rz) {
+        for (int rx = rx_min; rx <= rx_max; ++rx) {
+            Tile t;
+            const int cx_lo = std::max(0, rx * block_span - wx0);
+            const int cx_hi = std::min(setup.dims[0],
+                                       (rx + 1) * block_span - wx0);
+            const int cz_lo = std::max(0, rz * block_span - wz0);
+            const int cz_hi = std::min(setup.dims[2],
+                                       (rz + 1) * block_span - wz0);
+            t.offset_xz = {cx_lo, cz_lo};
+            t.dims_xz   = {cx_hi - cx_lo, cz_hi - cz_lo};
+            tiles.push_back(t);
+        }
+    }
+    return build_plan(
+        mesh, setup, opts.max_grid_cells, std::move(tiles), ntx,
+        [&](int cell) { return floor_div(wx0 + cell, block_span) - rx_min; },
+        [&](int cell) { return floor_div(wz0 + cell, block_span) - rz_min; });
+}
+
 TileResult voxelize_tile(const mesh::Mesh& mesh,
                          const voxel::VoxelizerOptions& opts,
                          const Tile& tile,
                          std::span<const std::int32_t> faces) {
-    voxel::VoxelizerOptions frame_opts = opts;
-    frame_opts.max_grid_cells = std::numeric_limits<std::int64_t>::max();
-    const voxel::detail::GridSetup setup =
-        voxel::detail::compute_grid_setup(mesh, frame_opts);
+    const voxel::detail::GridSetup setup = resolve_frame(mesh, opts);
 
     if (tile.offset_xz[0] < 0 || tile.offset_xz[1] < 0 ||
         tile.dims_xz[0] < 1 || tile.dims_xz[1] < 1 ||

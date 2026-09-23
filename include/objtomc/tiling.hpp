@@ -78,6 +78,19 @@ TilePlan plan_tiles(const mesh::Mesh& mesh,
                     int tile_cells_x,
                     int tile_cells_z);
 
+// Region-aligned decomposition (Session 57, proposal §3.1): tile
+// boundaries fall where the WORLD block coordinate (world_origin_xz +
+// cell) crosses a multiple of block_span. With block_span = 512 (one
+// Anvil region) every tile's chunks land in exactly one region file, so
+// a consumer can write-and-free one region per tile; 512 is a multiple
+// of 16, so tile boundaries are also chunk boundaries. Edge tiles clip
+// to the grid (the first tile is smaller when world_origin is not a
+// multiple of block_span). Same validation contract as plan_tiles.
+TilePlan plan_tiles_aligned(const mesh::Mesh& mesh,
+                            const voxel::VoxelizerOptions& opts,
+                            const std::array<int, 2>& world_origin_xz,
+                            int block_span);
+
 // Voxelise one tile of the plan. faces must be the plan's face list for
 // this tile (ascending global indices). CPU fill path (GPU dispatch is
 // proposal §6.4).

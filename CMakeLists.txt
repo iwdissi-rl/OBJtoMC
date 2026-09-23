@@ -343,7 +343,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE gltf texture ZLIB::ZLIB)
+    PRIVATE gltf texture tiling ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

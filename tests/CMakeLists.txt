@@ -453,6 +453,19 @@ add_executable(test_orchestrate_determinism test_orchestrate_determinism.cpp)
 target_link_libraries(test_orchestrate_determinism PRIVATE orchestrate)
 add_test(NAME orchestrate_determinism COMMAND test_orchestrate_determinism)
 
+# Session 57 — v0.4 §5.1 orchestrate-level tiled byte-equality gate: the
+# load-bearing check that TilingMode::ON worlds are byte-identical to
+# monolithic worlds (research/scale_v04_proposal.md §3.3 / §5.1).
+add_executable(test_orchestrate_tiled_equality test_orchestrate_tiled_equality.cpp)
+target_link_libraries(test_orchestrate_tiled_equality PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_tiled_equality
+    COMMAND test_orchestrate_tiled_equality
+            ${MESH_FIXTURES_DIR}/cube.obj
+            ${MESH_FIXTURES_DIR}/bunny.obj
+            ${CMAKE_SOURCE_DIR}/tests/fixtures/texture/quad.glb
+)
+
 add_executable(test_orchestrate_cli_errors test_orchestrate_cli_errors.cpp)
 target_link_libraries(test_orchestrate_cli_errors PRIVATE orchestrate)
 add_test(

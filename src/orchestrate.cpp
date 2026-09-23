@@ -38,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <functional>
 #include <ostream>
 #include <stdexcept>
 #include <unordered_map>
@@ -53,6 +54,7 @@
 #include "objtomc/nbt.hpp"
 #include "objtomc/palette.hpp"
 #include "objtomc/texture.hpp"
+#include "objtomc/tiling.hpp"
 #include "objtomc/voxel.hpp"
 // Project-internal voxel helpers (swap_axes + closest_point_on_triangle_bary)
 // for per-voxel UV recovery — see voxel_internal.hpp Session 48 block.
@@ -72,6 +74,7 @@ OrchestrateOptions default_options() noexcept {
     o.voxel_grid_origin_world = std::nullopt;
     o.max_grid_cells          = voxel::MAX_GRID_CELLS_DEFAULT;
     o.world_origin            = {0, -60, 0};
+    o.tiling                  = OrchestrateOptions::TilingMode::AUTO;
     o.matcher_opts            = matcher::default_options();
     o.palette_csv             = std::nullopt;
     o.level_name              = "objtomc world";
@@ -439,6 +442,126 @@ struct LocalPosHash {
     }
 };
 
+using ChunkMap = std::unordered_map<ChunkKey, std::vector<VoxelEntry>, PairHash>;
+
+// ---------------------------------------------------------------------------
+// bucket_chunks — step 6 (§3.4 two-pass routing), verbatim from the
+// pre-Session-57 orchestrate() body. Consumes states by move.
+// ---------------------------------------------------------------------------
+ChunkMap bucket_chunks(const std::vector<WorldPos>& positions,
+                       std::vector<chunk::BlockState>& states) {
+    ChunkMap chunks;
+    chunks.reserve(positions.size() / 100 + 16);   // rough — most voxels share chunks
+
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        const auto& p = positions[i];
+        const auto cx = world_to_chunk(p.x);
+        const auto cz = world_to_chunk(p.z);
+        const auto lx = world_to_local(p.x);
+        const auto lz = world_to_local(p.z);
+        chunks[{cx, cz}].push_back(
+            VoxelEntry{lx, p.y, lz, std::move(states[i])});
+    }
+    return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// write_chunk_batch — steps 7–10 (sort → group by region → build + write
+// each region file), verbatim from the pre-Session-57 orchestrate() body,
+// plus the step-9 directory creation at its head (idempotent, so the
+// tiled path can call this once per tile). The monolithic path calls it
+// exactly once with every chunk — byte-identical to the pre-57 flow. In
+// tiled mode each call carries the chunks of exactly one region
+// (plan_tiles_aligned's one-region-per-tile construction), so region
+// files never need reopening.
+// ---------------------------------------------------------------------------
+void write_chunk_batch(const std::filesystem::path& world_dir,
+                       const ChunkMap& chunks,
+                       std::int64_t now_unix_s,
+                       const std::function<void(const std::string&)>& log) {
+    namespace fs = std::filesystem;
+
+    // ---- 7. Sort chunk keys for byte-deterministic output (§3.4 note) ----
+    std::vector<ChunkKey> chunk_keys;
+    chunk_keys.reserve(chunks.size());
+    for (const auto& kv : chunks) chunk_keys.push_back(kv.first);
+    std::sort(chunk_keys.begin(), chunk_keys.end());
+
+    // ---- 8. Group chunks by region, write each region ----
+    std::unordered_map<RegionKey, std::vector<ChunkKey>, PairHash> regions;
+    for (const auto& ck : chunk_keys) {
+        const auto rx = chunk_to_region(ck.first);
+        const auto rz = chunk_to_region(ck.second);
+        regions[{rx, rz}].push_back(ck);
+    }
+
+    // Sort region keys too, for deterministic file-system write order.
+    std::vector<RegionKey> region_keys;
+    region_keys.reserve(regions.size());
+    for (const auto& kv : regions) region_keys.push_back(kv.first);
+    std::sort(region_keys.begin(), region_keys.end());
+
+    log("[anvil]   writing " + std::to_string(regions.size()) + " region file(s)");
+
+    // ---- 9. Create world_dir + world_dir/region/ ----
+    {
+        std::error_code ec;
+        fs::create_directories(world_dir, ec);
+        if (ec) {
+            throw orchestrate_error("cannot create world_dir " +
+                                    world_dir.string() + ": " + ec.message());
+        }
+        fs::create_directories(world_dir / WORLD_DIR_REGION_SUBDIR, ec);
+        if (ec) {
+            throw orchestrate_error("cannot create world_dir/region: " + ec.message());
+        }
+    }
+
+    // ---- 10. Per-region: build + serialise + write ----
+    for (const auto& rkey : region_keys) {
+        anvil::RegionWriter writer(rkey.first, rkey.second);
+        const auto& chunks_in_region = regions.at(rkey);
+
+        // chunks_in_region is already in sorted order because chunk_keys was
+        // sorted before grouping (region grouping preserves the relative
+        // order of its source keys).
+        for (const auto& ck : chunks_in_region) {
+            const auto& entries = chunks.at(ck);
+
+            // Per-chunk (lx, wy, lz) → BlockState lookup map for the
+            // BlockProvider lambda.
+            std::unordered_map<std::tuple<int, int, int>,
+                               chunk::BlockState, LocalPosHash> per_chunk;
+            per_chunk.reserve(entries.size());
+            for (const auto& e : entries) {
+                per_chunk[{e.local_x, e.world_y, e.local_z}] = e.state;
+            }
+
+            chunk::ChunkBuilder builder(ck.first, ck.second, "minecraft:plains");
+            builder.build([&](int lx, int wy, int lz) -> chunk::BlockState {
+                const auto it = per_chunk.find({lx, wy, lz});
+                return (it != per_chunk.end()) ? it->second
+                                               : chunk::BlockState::air();
+            });
+
+            writer.add_chunk(ck.first, ck.second, builder.to_bytes(),
+                             static_cast<std::int32_t>(now_unix_s));
+        }
+
+        const auto region_path = world_dir / WORLD_DIR_REGION_SUBDIR /
+            ("r." + std::to_string(rkey.first) + "." +
+             std::to_string(rkey.second) + ".mca");
+        std::ofstream out(region_path, std::ios::binary);
+        if (!out) {
+            throw orchestrate_error("cannot open region file for writing: " +
+                                    region_path.string());
+        }
+        nbt::OstreamWriter w(out);
+        writer.write(w);
+        log("[anvil]   wrote " + region_path.string());
+    }
+}
+
 }  // namespace
 
 // ===========================================================================
@@ -556,41 +679,34 @@ void orchestrate(const std::filesystem::path& obj_path,
     vopts.origin_world    = opts.voxel_grid_origin_world;
     vopts.max_grid_cells  = opts.max_grid_cells;
 
-    log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
-    const voxel::VoxelGrid grid = voxel::voxelize_mesh(m, vopts);
-    const auto dims = grid.dimensions();
-    log("[voxel]   grid dims = " + std::to_string(dims[0]) + " x " +
-        std::to_string(dims[1]) + " x " + std::to_string(dims[2]));
-
-    // ---- 3. Y-range validation against MC world height ----
-    validate_y_range(dims[1], opts.world_origin);
-
-    const std::size_t occ = grid.occupied_count();
-    log("[voxel]   occupied = " + std::to_string(occ));
-
-    if (occ == 0) {
-        // Degenerate but valid input: write a world directory with no chunks +
-        // a level.dat. The world will load as empty void.
-        log("[orch]    warning: no occupied voxels; writing empty world");
+    // ---- 2t. Tiling decision (Session 57, v0.4 — proposal §3.5) ----
+    // AUTO: monolithic when the full grid fits max_grid_cells (pre-v0.4
+    // invocations byte-stable by construction), tiled otherwise. ON:
+    // always tiled. OFF: always monolithic (oversize keeps throwing).
+    // The aligned plan puts every tile's chunks in exactly one region.
+    using TilingMode = OrchestrateOptions::TilingMode;
+    std::optional<tiling::TilePlan> plan;
+    bool use_tiling = false;
+    if (opts.tiling != TilingMode::OFF) {
+        plan = tiling::plan_tiles_aligned(
+            m, vopts, {opts.world_origin[0], opts.world_origin[2]}, 512);
+        const std::int64_t frame_cells =
+            static_cast<std::int64_t>(plan->grid_dims[0]) *
+            static_cast<std::int64_t>(plan->grid_dims[1]) *
+            static_cast<std::int64_t>(plan->grid_dims[2]);
+        use_tiling = (opts.tiling == TilingMode::ON) ||
+                     frame_cells > opts.max_grid_cells;
     }
 
-    // ---- 4. Drain voxel grid into MatchInput + position arrays ----
-    // MatchInput (28 B) instead of full mesh::Material copies (~200 B with
-    // its string/byte-vector members) — v0.4 §3.4. Same (kd, ke, d) floats
-    // flow to match_batch, so output is byte-identical (ctest
-    // match_input_equivalence gates the overload pair).
-    std::vector<matcher::MatchInput> mats;
-    std::vector<WorldPos>            positions;
-    mats.reserve(occ);
-    positions.reserve(occ);
-
     // mesh.materials may be empty (e.g. the bunny fixture has no MTL); the
-    // voxelizer coerces face.material_id == -1 → 0 on storage. So material_id
-    // values in the grid are always ≥ 0, but materials() may be empty. In that
+    // voxelizer coerces face.material_id == -1 -> 0 on storage. So material_id
+    // values in the grid are always >= 0, but materials may be empty. In that
     // case we synthesise a default input per voxel so the matcher's input is
     // well-defined (default = mid-gray opaque non-emissive per
-    // matcher_proposal.md §3.4).
-    const bool materials_empty = grid.materials().empty();
+    // matcher_proposal.md §3.4). (VoxelGrid::materials() is a copy of
+    // m.materials, so reading m.materials here is value-identical and works
+    // for the tiled path, where no whole-world grid exists.)
+    const bool materials_empty = m.materials.empty();
     const matcher::MatchInput default_input{
         {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f}, 1.0f};
 
@@ -603,8 +719,8 @@ void orchestrate(const std::filesystem::path& obj_path,
     // its flat Kd — meshes with no textures on disk (e.g. the repo's
     // Sponza fixture) take the pre-Session-48 path bit-for-bit.
     texture::TextureCache tex_cache;
-    std::vector<const texture::Image*> mat_tex(grid.materials().size(), nullptr);
-    std::vector<const texture::Image*> mat_tex_ke(grid.materials().size(), nullptr);
+    std::vector<const texture::Image*> mat_tex(m.materials.size(), nullptr);
+    std::vector<const texture::Image*> mat_tex_ke(m.materials.size(), nullptr);
     if (!m.uvs.empty()) {
         // Shared resolver for the kd and ke texture slots. `prefix`
         // namespaces the embedded-bytes cache keys so a kd and a ke image
@@ -627,8 +743,8 @@ void orchestrate(const std::filesystem::path& obj_path,
             if (tp.is_relative()) tp = obj_path.parent_path() / tp;
             return tex_cache.load(tp);
         };
-        for (std::size_t i = 0; i < grid.materials().size(); ++i) {
-            const mesh::Material& gm = grid.materials()[i];
+        for (std::size_t i = 0; i < m.materials.size(); ++i) {
+            const mesh::Material& gm = m.materials[i];
             mat_tex[i]    = resolve(i, gm.map_kd, gm.map_kd_bytes, "embedded:");
             mat_tex_ke[i] = resolve(i, gm.map_ke, gm.map_ke_bytes, "embedded_ke:");
         }
@@ -640,15 +756,27 @@ void orchestrate(const std::filesystem::path& obj_path,
     const bool any_texture = has_any(mat_tex) || has_any(mat_tex_ke);
     if (any_texture) log("[texture] per-voxel texture sampling active");
 
-    const auto grid_origin = grid.origin_world();
-    const float vs = grid.voxel_size();
+    // Frame values both branches assign before emitting voxels. The
+    // monolithic branch takes them from the VoxelGrid; the tiled branch
+    // from the TilePlan — same compute_grid_setup arithmetic, identical
+    // values.
+    std::array<float, 3> frame_origin{};
+    float frame_vs = 0.0f;
 
-    grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
+    // ---- 4b. Per-voxel MatchInput assembly (shared by both branches) ----
+    // (gx, gy, gz) are GLOBAL grid cell indices; tri is the voxel's
+    // winning GLOBAL face index. Byte-equality-critical: box_centre uses
+    // frame_origin + GLOBAL indices — the same floats the disambiguation
+    // measured — never a tile-local origin.
+    auto emit_voxel = [&](int gx, int gy, int gz,
+                          std::int32_t mid, std::int32_t tri,
+                          std::vector<matcher::MatchInput>& out_mats,
+                          std::vector<WorldPos>& out_positions) {
         if (materials_empty) {
-            mats.push_back(default_input);
+            out_mats.push_back(default_input);
         } else {
             const mesh::Material& gm =
-                grid.materials()[static_cast<std::size_t>(mid)];
+                m.materials[static_cast<std::size_t>(mid)];
             matcher::MatchInput mat{gm.kd, gm.ke, gm.d};
             const texture::Image* tex =
                 any_texture ? mat_tex[static_cast<std::size_t>(mid)] : nullptr;
@@ -660,7 +788,6 @@ void orchestrate(const std::filesystem::path& obj_path,
                 // exactly the point the disambiguation measured (same
                 // arithmetic via closest_point_on_triangle_bary), and its
                 // barycentric (s, t) interpolates the corner UVs.
-                const auto tri = grid.triangle_at_unchecked(vx, vy, vz);
                 const auto& face = m.faces[static_cast<std::size_t>(tri)];
                 if (face.uv_indices[0] >= 0 &&
                     face.uv_indices[1] >= 0 &&
@@ -672,9 +799,9 @@ void orchestrate(const std::filesystem::path& obj_path,
                     const auto v2 = voxel::detail::swap_axes(
                         m.positions[face.position_indices[2]], vopts.axis_convention);
                     const std::array<float, 3> box_centre{
-                        grid_origin[0] + (static_cast<float>(vx) + 0.5f) * vs,
-                        grid_origin[1] + (static_cast<float>(vy) + 0.5f) * vs,
-                        grid_origin[2] + (static_cast<float>(vz) + 0.5f) * vs};
+                        frame_origin[0] + (static_cast<float>(gx) + 0.5f) * frame_vs,
+                        frame_origin[1] + (static_cast<float>(gy) + 0.5f) * frame_vs,
+                        frame_origin[2] + (static_cast<float>(gz) + 0.5f) * frame_vs};
                     float s = 0.0f;
                     float t = 0.0f;
                     voxel::detail::closest_point_on_triangle_bary(
@@ -690,7 +817,7 @@ void orchestrate(const std::filesystem::path& obj_path,
                     if (tex != nullptr) {
                         mat.kd = texture::sample_nearest(*tex, u, v);
                         // BLEND alpha-in-texture (Session 52): effective
-                        // alpha = baseColorFactor.a × texel.a. Alpha is
+                        // alpha = baseColorFactor.a x texel.a. Alpha is
                         // LINEAR on both sides (the sRGB transfer never
                         // applies to alpha), so multiply directly — no
                         // decode/encode. Without this, Sketchfab BLEND
@@ -701,10 +828,10 @@ void orchestrate(const std::filesystem::path& obj_path,
                         }
                     }
                     // Emissive mask (Session 51): glTF emission is
-                    // emissiveFactor × emissiveTexture in LINEAR space.
-                    // mat.ke already carries encode(factor × strength), so
+                    // emissiveFactor x emissiveTexture in LINEAR space.
+                    // mat.ke already carries encode(factor x strength), so
                     // decode both sides, multiply, re-encode. Black texels
-                    // drive ke → 0, dropping the voxel out of the matcher's
+                    // drive ke -> 0, dropping the voxel out of the matcher's
                     // emissive branch (the DamagedHelmet all-froglight
                     // failure mode).
                     if (tex_ke != nullptr) {
@@ -716,12 +843,12 @@ void orchestrate(const std::filesystem::path& obj_path,
                     }
                 }
             }
-            mats.push_back(std::move(mat));
+            out_mats.push_back(std::move(mat));
         }
-        positions.push_back(voxel_to_world(vx, vy, vz, opts.world_origin));
-    });
+        out_positions.push_back(voxel_to_world(gx, gy, gz, opts.world_origin));
+    };
 
-    // ---- 5. Match materials → BlockStates ----
+    // ---- 5. Palette + matcher (shared; needed before the tile loop) ----
     // v0.1 limitation: load_palette_csv() requires a blocks.json path which
     // the palette layer bakes in privately via OBJTOMC_VENDOR_MINECRAFT_DATA_DIR.
     // The CLI's --palette-csv flag is accepted but ignored in v0.1 with a
@@ -732,108 +859,108 @@ void orchestrate(const std::filesystem::path& obj_path,
                   << ") is v0.2 work; using load_default_palette() for v0.1\n";
     }
     const palette::PaletteDB db = palette::load_default_palette();
-
     matcher::Matcher matcher_(db, opts.matcher_opts);
-    log("[matcher] matching " + std::to_string(mats.size()) + " voxels");
 
-    std::vector<chunk::BlockState> states(mats.size());
-    matcher_.match_batch(mats, states);
+    if (!use_tiling) {
+        // =========== Monolithic pipeline (pre-v0.4 flow, byte-stable) ===========
+        log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
+        const voxel::VoxelGrid grid = voxel::voxelize_mesh(m, vopts);
+        const auto dims = grid.dimensions();
+        log("[voxel]   grid dims = " + std::to_string(dims[0]) + " x " +
+            std::to_string(dims[1]) + " x " + std::to_string(dims[2]));
 
-    // ---- 6. Bucket by chunk (§3.4 two-pass routing) ----
-    std::unordered_map<ChunkKey, std::vector<VoxelEntry>, PairHash> chunks;
-    chunks.reserve(occ / 100 + 16);   // rough — most voxels share chunks
+        // ---- 3. Y-range validation against MC world height ----
+        validate_y_range(dims[1], opts.world_origin);
 
-    for (std::size_t i = 0; i < positions.size(); ++i) {
-        const auto& p = positions[i];
-        const auto cx = world_to_chunk(p.x);
-        const auto cz = world_to_chunk(p.z);
-        const auto lx = world_to_local(p.x);
-        const auto lz = world_to_local(p.z);
-        chunks[{cx, cz}].push_back(
-            VoxelEntry{lx, p.y, lz, std::move(states[i])});
-    }
+        const std::size_t occ = grid.occupied_count();
+        log("[voxel]   occupied = " + std::to_string(occ));
 
-    log("[chunk]   routing " + std::to_string(occ) + " voxels into " +
-        std::to_string(chunks.size()) + " chunks");
-
-    // ---- 7. Sort chunk keys for byte-deterministic output (§3.4 note) ----
-    std::vector<ChunkKey> chunk_keys;
-    chunk_keys.reserve(chunks.size());
-    for (const auto& kv : chunks) chunk_keys.push_back(kv.first);
-    std::sort(chunk_keys.begin(), chunk_keys.end());
-
-    // ---- 8. Group chunks by region, write each region ----
-    std::unordered_map<RegionKey, std::vector<ChunkKey>, PairHash> regions;
-    for (const auto& ck : chunk_keys) {
-        const auto rx = chunk_to_region(ck.first);
-        const auto rz = chunk_to_region(ck.second);
-        regions[{rx, rz}].push_back(ck);
-    }
-
-    // Sort region keys too, for deterministic file-system write order.
-    std::vector<RegionKey> region_keys;
-    region_keys.reserve(regions.size());
-    for (const auto& kv : regions) region_keys.push_back(kv.first);
-    std::sort(region_keys.begin(), region_keys.end());
-
-    log("[anvil]   writing " + std::to_string(regions.size()) + " region file(s)");
-
-    // ---- 9. Create world_dir + world_dir/region/ ----
-    {
-        std::error_code ec;
-        fs::create_directories(world_dir, ec);
-        if (ec) {
-            throw orchestrate_error("cannot create world_dir " +
-                                    world_dir.string() + ": " + ec.message());
+        if (occ == 0) {
+            // Degenerate but valid input: write a world directory with no chunks +
+            // a level.dat. The world will load as empty void.
+            log("[orch]    warning: no occupied voxels; writing empty world");
         }
-        fs::create_directories(world_dir / WORLD_DIR_REGION_SUBDIR, ec);
-        if (ec) {
-            throw orchestrate_error("cannot create world_dir/region: " + ec.message());
-        }
-    }
 
-    // ---- 10. Per-region: build + serialise + write ----
-    for (const auto& rkey : region_keys) {
-        anvil::RegionWriter writer(rkey.first, rkey.second);
-        const auto& chunks_in_region = regions.at(rkey);
+        // ---- 4. Drain voxel grid into MatchInput + position arrays ----
+        // MatchInput (28 B) instead of full mesh::Material copies (~200 B with
+        // its string/byte-vector members) — v0.4 §3.4.
+        std::vector<matcher::MatchInput> mats;
+        std::vector<WorldPos>            positions;
+        mats.reserve(occ);
+        positions.reserve(occ);
 
-        // chunks_in_region is already in sorted order because chunk_keys was
-        // sorted before grouping (region grouping preserves the relative
-        // order of its source keys).
-        for (const auto& ck : chunks_in_region) {
-            const auto& entries = chunks.at(ck);
+        frame_origin = grid.origin_world();
+        frame_vs     = grid.voxel_size();
+        grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
+            emit_voxel(vx, vy, vz, mid,
+                       grid.triangle_at_unchecked(vx, vy, vz),
+                       mats, positions);
+        });
 
-            // Per-chunk (lx, wy, lz) → BlockState lookup map for the
-            // BlockProvider lambda.
-            std::unordered_map<std::tuple<int, int, int>,
-                               chunk::BlockState, LocalPosHash> per_chunk;
-            per_chunk.reserve(entries.size());
-            for (const auto& e : entries) {
-                per_chunk[{e.local_x, e.world_y, e.local_z}] = e.state;
+        // ---- 5b. Match materials -> BlockStates ----
+        log("[matcher] matching " + std::to_string(mats.size()) + " voxels");
+        std::vector<chunk::BlockState> states(mats.size());
+        matcher_.match_batch(mats, states);
+
+        // ---- 6. Bucket by chunk (§3.4 two-pass routing) ----
+        ChunkMap chunks = bucket_chunks(positions, states);
+        log("[chunk]   routing " + std::to_string(occ) + " voxels into " +
+            std::to_string(chunks.size()) + " chunks");
+
+        // ---- 7-10. Sort / group / build / write regions ----
+        write_chunk_batch(world_dir, chunks, now_unix_s, log);
+    } else {
+        // =========== Tiled streaming pipeline (v0.4, proposal §3.2) ===========
+        validate_y_range(plan->grid_dims[1], opts.world_origin);
+        log("[voxel]   grid dims = " + std::to_string(plan->grid_dims[0]) +
+            " x " + std::to_string(plan->grid_dims[1]) + " x " +
+            std::to_string(plan->grid_dims[2]) + " (tiled: " +
+            std::to_string(plan->tiles.size()) + " region tiles)");
+
+        frame_origin = plan->grid_origin;
+        frame_vs     = plan->voxel_size;
+
+        std::size_t total_occ = 0;
+        for (std::size_t ti = 0; ti < plan->tiles.size(); ++ti) {
+            const tiling::TileResult res = tiling::voxelize_tile(
+                m, vopts, plan->tiles[ti],
+                std::span<const std::int32_t>(plan->tile_faces[ti]));
+
+            std::vector<matcher::MatchInput> mats;
+            std::vector<WorldPos>            positions;
+            const int x0 = res.tile.offset_xz[0];
+            const int z0 = res.tile.offset_xz[1];
+            const int wx = res.dims[0];
+            const int wz = res.dims[2];
+            std::size_t li = 0;
+            for (int y = 0; y < res.dims[1]; ++y) {
+                for (int lz = 0; lz < wz; ++lz) {
+                    for (int lx = 0; lx < wx; ++lx, ++li) {
+                        const std::int32_t mid = res.cells[li];
+                        if (mid == voxel::EMPTY) continue;
+                        emit_voxel(x0 + lx, y, z0 + lz, mid, res.tris[li],
+                                   mats, positions);
+                    }
+                }
             }
+            if (mats.empty()) continue;   // empty tile: no region file
+            total_occ += mats.size();
 
-            chunk::ChunkBuilder builder(ck.first, ck.second, "minecraft:plains");
-            builder.build([&](int lx, int wy, int lz) -> chunk::BlockState {
-                const auto it = per_chunk.find({lx, wy, lz});
-                return (it != per_chunk.end()) ? it->second
-                                               : chunk::BlockState::air();
-            });
-
-            writer.add_chunk(ck.first, ck.second, builder.to_bytes(),
-                             static_cast<std::int32_t>(now_unix_s));
+            std::vector<chunk::BlockState> states(mats.size());
+            matcher_.match_batch(mats, states);
+            ChunkMap chunks = bucket_chunks(positions, states);
+            log("[tile]    tile " + std::to_string(ti) + ": " +
+                std::to_string(mats.size()) + " voxels, " +
+                std::to_string(chunks.size()) + " chunks");
+            write_chunk_batch(world_dir, chunks, now_unix_s, log);
         }
-
-        const auto region_path = world_dir / WORLD_DIR_REGION_SUBDIR /
-            ("r." + std::to_string(rkey.first) + "." +
-             std::to_string(rkey.second) + ".mca");
-        std::ofstream out(region_path, std::ios::binary);
-        if (!out) {
-            throw orchestrate_error("cannot open region file for writing: " +
-                                    region_path.string());
+        log("[voxel]   occupied = " + std::to_string(total_occ));
+        if (total_occ == 0) {
+            log("[orch]    warning: no occupied voxels; writing empty world");
+            // Match the monolithic empty-world contract: world_dir +
+            // region/ exist even with zero region files.
+            write_chunk_batch(world_dir, ChunkMap{}, now_unix_s, log);
         }
-        nbt::OstreamWriter w(out);
-        writer.write(w);
-        log("[anvil]   wrote " + region_path.string());
     }
 
     // ---- 11. Write level.dat ----

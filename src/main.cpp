@@ -72,6 +72,10 @@ void print_help(std::ostream& os, const char* argv0) {
         "\n"
         "Optional:\n"
         "  --axis-convention {y_up,z_up}   Input mesh axis (default y_up).\n"
+        "  --tiling {auto,on,off}          Streaming tiled output (default auto:\n"
+        "                                  tile per region only when the grid\n"
+        "                                  exceeds --max-grid-cells; byte-identical\n"
+        "                                  to monolithic output either way).\n"
         "  --world-origin <x,y,z>          World-space block coord of voxel (0,0,0).\n"
         "                                  Three comma-separated ints (default 0,-60,0).\n"
         "  --level-name <string>           World name (default \"objtomc world\").\n"
@@ -195,6 +199,19 @@ ParsedCli parse_cli(int argc, char** argv) {
                                   "' is out of range");
             }
             target_size_seen = true;
+        } else if (a == "--tiling") {
+            const auto v = next_arg(i, "tiling");
+            using TM = objtomc::orch::OrchestrateOptions::TilingMode;
+            if (v == "auto") {
+                cli.opts.tiling = TM::AUTO;
+            } else if (v == "on") {
+                cli.opts.tiling = TM::ON;
+            } else if (v == "off") {
+                cli.opts.tiling = TM::OFF;
+            } else {
+                throw usage_error(std::string("--tiling: '") + std::string(v) +
+                                  "' is not one of {auto, on, off}");
+            }
         } else if (a == "--axis-convention") {
             const auto v = next_arg(i, "axis-convention");
             if (v == "y_up" || v == "Y_UP") {
