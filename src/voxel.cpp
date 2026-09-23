@@ -656,18 +656,53 @@ void fill_cells_cpu(const mesh::Mesh& mesh_in,
                     const GridSetup& setup,
                     std::vector<std::int32_t>& cells,
                     std::vector<std::int32_t>& tris) {
+    // Full grid == the window covering every XZ cell, all faces. The
+    // windowed core uses identical arithmetic (global origin + global
+    // cell indices in every float expression), so this delegation is
+    // byte-identical to the pre-Session-56 monolithic body — gated by the
+    // whole pre-existing suite plus voxel_cpu_gpu_equality.
+    fill_cells_cpu_window(mesh_in, setup,
+                          /*window_x0=*/0, /*window_z0=*/0,
+                          /*window_wx=*/setup.dims[0],
+                          /*window_wz=*/setup.dims[2],
+                          std::span<const std::int32_t>(), cells, tris);
+}
+
+// ---------------------------------------------------------------------------
+// detail::fill_cells_cpu_window — the windowed CPU kernel core (Session 56,
+// v0.4 tiling). See voxel_internal.hpp for the byte-equality contract:
+// GLOBAL frame arithmetic, window-local storage.
+// ---------------------------------------------------------------------------
+void fill_cells_cpu_window(const mesh::Mesh& mesh_in,
+                           const GridSetup& setup,
+                           const int window_x0, const int window_z0,
+                           const int window_wx, const int window_wz,
+                           std::span<const std::int32_t> faces,
+                           std::vector<std::int32_t>& cells,
+                           std::vector<std::int32_t>& tris) {
     const auto& dims = setup.dims;
     const auto& origin = setup.origin;
     const float vs   = setup.voxel_size;
     const float half = 0.5f * vs;
     const Vec3 box_half{half, half, half};
 
-    // Side-buffer of best (closest) distances per cell. Allocated for the
-    // duration of the kernel only; freed on return. See proposal §3.8.
+    // Window-local storage frame: lx + wx * (lz + wz * y).
+    const int wx = window_wx;
+    const int wz = window_wz;
+    const int x_win_hi = window_x0 + wx - 1;   // inclusive global bounds
+    const int z_win_hi = window_z0 + wz - 1;
+
+    // Side-buffer of best (closest) distances per window cell. Allocated
+    // for the duration of the kernel only; freed on return. See proposal
+    // §3.8.
     std::vector<float> best_dist(cells.size(),
                                  std::numeric_limits<float>::infinity());
 
-    for (std::size_t face_idx = 0; face_idx < mesh_in.faces.size(); ++face_idx) {
+    const std::size_t face_count =
+        faces.empty() ? mesh_in.faces.size() : faces.size();
+    for (std::size_t k = 0; k < face_count; ++k) {
+        const std::size_t face_idx =
+            faces.empty() ? k : static_cast<std::size_t>(faces[k]);
         const auto& face = mesh_in.faces[face_idx];
         const Vec3 v0 = apply_axis_swap(
             mesh_in.positions[face.position_indices[0]], setup.axis);
@@ -712,10 +747,17 @@ void fill_cells_cpu(const mesh::Mesh& mesh_in,
         const std::int32_t mid =
             (face.material_id < 0) ? std::int32_t{0} : face.material_id;
 
-        // Iterate the triangle's voxel-space AABB.
+        // Iterate the triangle's voxel-space AABB, restricted to the
+        // window in X/Z. The intersection only skips cells this window
+        // does not store; the cells it does visit see the exact same
+        // (box_centre, dist) floats as the full-grid loop.
+        const int x_first = std::max(x_lo, window_x0);
+        const int x_last  = std::min(x_hi, x_win_hi);
+        const int z_first = std::max(z_lo, window_z0);
+        const int z_last  = std::min(z_hi, z_win_hi);
         for (int y = y_lo; y <= y_hi; ++y) {
-            for (int z = z_lo; z <= z_hi; ++z) {
-                for (int x = x_lo; x <= x_hi; ++x) {
+            for (int z = z_first; z <= z_last; ++z) {
+                for (int x = x_first; x <= x_last; ++x) {
                     const Vec3 box_centre{
                         origin[0] + (static_cast<float>(x) + 0.5f) * vs,
                         origin[1] + (static_cast<float>(y) + 0.5f) * vs,
@@ -733,7 +775,9 @@ void fill_cells_cpu(const mesh::Mesh& mesh_in,
                         box_centre, v0, v1, v2);
                     const float dist = v_len(v_sub(box_centre, cp));
 
-                    const std::size_t idx = cell_index(x, y, z, dims);
+                    const std::size_t idx = static_cast<std::size_t>(
+                        (x - window_x0) +
+                        wx * ((z - window_z0) + wz * y));
                     const std::int32_t current = cells[idx];
                     if (current == EMPTY) {
                         cells[idx] = mid;

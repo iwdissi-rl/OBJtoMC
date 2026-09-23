@@ -26,6 +26,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace objtomc::voxel::detail {
@@ -63,6 +64,29 @@ void fill_cells_cpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
                     std::vector<std::int32_t>& cells,
                     std::vector<std::int32_t>& tris);
+
+// Windowed CPU cell-filling (Session 56, v0.4 tiling — proposal §3.2).
+// Fills only the XZ window [x0, x0+wx) × full Y × [z0, z0+wz) of the
+// setup's GLOBAL grid frame, writing into window-local dense buffers
+// (pre-sized to wx * dims[1] * wz, pre-filled EMPTY; local index =
+// lx + wx * (lz + wz * y)).
+//
+// BYTE-EQUALITY-CRITICAL: every float expression (triangle AABB → index
+// ranges, box centres) uses the GLOBAL origin and GLOBAL cell indices —
+// identical arithmetic to the full-grid path, so a window cell's result
+// is bit-identical to the same cell in a monolithic fill. The full-grid
+// fill_cells_cpu above is this function with the full window.
+//
+// faces: ascending GLOBAL face indices to iterate (a tile's exact bin per
+// tiling::plan_tiles); an EMPTY span means "all faces". tris receives
+// GLOBAL face indices either way.
+void fill_cells_cpu_window(const ::objtomc::mesh::Mesh& mesh_in,
+                           const GridSetup& setup,
+                           int window_x0, int window_z0,
+                           int window_wx, int window_wz,
+                           std::span<const std::int32_t> faces,
+                           std::vector<std::int32_t>& cells,
+                           std::vector<std::int32_t>& tris);
 
 #ifdef OBJTOMC_WITH_CUDA
 // GPU cell-filling: same semantics as fill_cells_cpu — byte-identical

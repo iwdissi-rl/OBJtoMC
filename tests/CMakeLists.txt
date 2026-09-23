@@ -374,6 +374,17 @@ add_test(
     COMMAND test_voxel_stanford_bunny ${MESH_FIXTURES_DIR}/bunny.obj
 )
 
+# Session 56 — v0.4 §5.1 voxel-layer tiled byte-equality gate
+# (research/scale_v04_proposal.md §3.3).
+add_executable(test_voxel_tiled_equality test_voxel_tiled_equality.cpp)
+target_link_libraries(test_voxel_tiled_equality PRIVATE tiling voxel mesh)
+add_test(
+    NAME voxel_tiled_equality
+    COMMAND test_voxel_tiled_equality
+            ${MESH_FIXTURES_DIR}/cube.obj
+            ${MESH_FIXTURES_DIR}/bunny.obj
+)
+
 add_executable(test_voxel_multi_material_disambiguate
                test_voxel_multi_material_disambiguate.cpp)
 target_link_libraries(test_voxel_multi_material_disambiguate PRIVATE voxel mesh)

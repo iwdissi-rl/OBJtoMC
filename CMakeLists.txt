@@ -284,6 +284,17 @@ target_include_directories(voxel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(voxel PUBLIC mesh)
 
 # ---------------------------------------------------------------------------
+# Tiled voxelisation driver — Session 56 (v0.4 item #1, streaming scale).
+# Region-aligned XZ tile decomposition + exact per-tile face binning over
+# the voxel layer's windowed CPU kernel. See research/scale_v04_proposal.md
+# §3.1–§3.3 and include/objtomc/tiling.hpp.
+# ---------------------------------------------------------------------------
+add_library(tiling STATIC src/tiling.cpp)
+target_include_directories(tiling PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(tiling PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tiling PUBLIC voxel mesh)
+
+# ---------------------------------------------------------------------------
 # GPU voxelizer path — Session 40 (v0.2 work item #3, implementation slice 2).
 #
 # When WITH_CUDA_ENABLED, add src/voxel_gpu.cu as an additional source to
