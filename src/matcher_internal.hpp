@@ -40,11 +40,11 @@ namespace objtomc::matcher::detail {
 //
 // Throws matcher_error on any CUDA runtime failure. No CUDA state leaks
 // on the throw path (RAII device-buffer wrappers per proposal §3.10).
-void fill_matches_gpu(std::span<const ::objtomc::mesh::Material> in,
-                      std::span<::objtomc::chunk::BlockState>    out,
-                      const ::objtomc::palette::PaletteDB&        db,
-                      std::span<const Oklab>                       palette_oklab,
-                      const MatcherOptions&                        opts);
+void fill_matches_gpu(std::span<const MatchInput>              in,
+                      std::span<::objtomc::chunk::BlockState>  out,
+                      const ::objtomc::palette::PaletteDB&      db,
+                      std::span<const Oklab>                     palette_oklab,
+                      const MatcherOptions&                      opts);
 #endif  // OBJTOMC_WITH_CUDA
 
 }  // namespace objtomc::matcher::detail

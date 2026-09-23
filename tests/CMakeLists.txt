@@ -343,6 +343,12 @@ add_executable(test_matcher_batch_consistency test_matcher_batch_consistency.cpp
 target_link_libraries(test_matcher_batch_consistency PRIVATE matcher palette mesh chunk)
 add_test(NAME matcher_batch_consistency COMMAND test_matcher_batch_consistency)
 
+# Session 55 — v0.4 §5.2 MatchInput/Material overload equivalence gate
+# (research/scale_v04_proposal.md).
+add_executable(test_match_input_equivalence test_match_input_equivalence.cpp)
+target_link_libraries(test_match_input_equivalence PRIVATE matcher palette mesh chunk)
+add_test(NAME match_input_equivalence COMMAND test_match_input_equivalence)
+
 add_executable(test_matcher_errors test_matcher_errors.cpp)
 target_link_libraries(test_matcher_errors PRIVATE matcher palette mesh chunk)
 add_test(NAME matcher_errors COMMAND test_matcher_errors)

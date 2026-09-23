@@ -574,23 +574,25 @@ void orchestrate(const std::filesystem::path& obj_path,
         log("[orch]    warning: no occupied voxels; writing empty world");
     }
 
-    // ---- 4. Drain voxel grid into Material + position arrays ----
-    std::vector<mesh::Material> mats;
-    std::vector<WorldPos>       positions;
+    // ---- 4. Drain voxel grid into MatchInput + position arrays ----
+    // MatchInput (28 B) instead of full mesh::Material copies (~200 B with
+    // its string/byte-vector members) — v0.4 §3.4. Same (kd, ke, d) floats
+    // flow to match_batch, so output is byte-identical (ctest
+    // match_input_equivalence gates the overload pair).
+    std::vector<matcher::MatchInput> mats;
+    std::vector<WorldPos>            positions;
     mats.reserve(occ);
     positions.reserve(occ);
 
     // mesh.materials may be empty (e.g. the bunny fixture has no MTL); the
     // voxelizer coerces face.material_id == -1 → 0 on storage. So material_id
     // values in the grid are always ≥ 0, but materials() may be empty. In that
-    // case we synthesise a default mesh::Material per voxel so the matcher's
-    // input is well-defined (default-Material = mid-gray opaque non-emissive
-    // per matcher_proposal.md §3.4).
+    // case we synthesise a default input per voxel so the matcher's input is
+    // well-defined (default = mid-gray opaque non-emissive per
+    // matcher_proposal.md §3.4).
     const bool materials_empty = grid.materials().empty();
-    mesh::Material default_material{};
-    default_material.kd  = {0.5f, 0.5f, 0.5f};
-    default_material.ke  = {0.0f, 0.0f, 0.0f};
-    default_material.d   = 1.0f;
+    const matcher::MatchInput default_input{
+        {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f}, 1.0f};
 
     // ---- 4a. Per-voxel texture sampling (Session 48, v0.3 item #1) ----
     // Resolve + decode each material's map_Kd once. map_Kd paths are
@@ -643,9 +645,11 @@ void orchestrate(const std::filesystem::path& obj_path,
 
     grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
         if (materials_empty) {
-            mats.push_back(default_material);
+            mats.push_back(default_input);
         } else {
-            mesh::Material mat = grid.materials()[static_cast<std::size_t>(mid)];
+            const mesh::Material& gm =
+                grid.materials()[static_cast<std::size_t>(mid)];
+            matcher::MatchInput mat{gm.kd, gm.ke, gm.d};
             const texture::Image* tex =
                 any_texture ? mat_tex[static_cast<std::size_t>(mid)] : nullptr;
             const texture::Image* tex_ke =
@@ -692,7 +696,7 @@ void orchestrate(const std::filesystem::path& obj_path,
                         // decode/encode. Without this, Sketchfab BLEND
                         // materials with default factor alpha 1 render
                         // fully opaque.
-                        if (mat.d_from_map_alpha) {
+                        if (gm.d_from_map_alpha) {
                             mat.d *= texture::sample_alpha(*tex, u, v);
                         }
                     }

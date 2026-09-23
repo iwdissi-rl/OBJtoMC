@@ -56,6 +56,24 @@ struct MatcherOptions {
 MatcherOptions default_options() noexcept;
 
 // ---------------------------------------------------------------------------
+// MatchInput — the compact per-voxel matching input (v0.4 §3.4,
+// research/scale_v04_proposal.md). Carries exactly the fields the matching
+// algorithm reads from mesh::Material: kd/ke (sRGB-gamma [0,1], same
+// encoding as Material) and d. 28 bytes vs ~200 for a full Material copy —
+// the difference between ~15 MB and ~100 MB of step-4a bookkeeping at
+// Sponza scale, and the enabler for tile occupancies in the 10^7 range.
+//
+// The Material overloads of match/match_batch produce byte-identical
+// output to the MatchInput overloads for equal (kd, ke, d) — gated by
+// ctest match_input_equivalence.
+// ---------------------------------------------------------------------------
+struct MatchInput {
+    std::array<float, 3> kd;
+    std::array<float, 3> ke;
+    float                d;
+};
+
+// ---------------------------------------------------------------------------
 // Errors. Programmer misuse only. Valid input never throws.
 //   - empty palette
 //   - non-finite kd / d / ke
@@ -89,6 +107,13 @@ public:
     void match_batch(std::span<const mesh::Material> in,
                      std::span<chunk::BlockState>    out) const;
 
+    // Core batch entry point (v0.4 §3.4). The Material overload above
+    // validates (with material names in error messages), converts, and
+    // delegates here; hot-path callers (orchestrate step 4a) build
+    // MatchInput directly.
+    void match_batch(std::span<const MatchInput>  in,
+                     std::span<chunk::BlockState> out) const;
+
     // The cached Oklab values, indexed by palette entry position. Exposed
     // for tests and the future GPU staging path; not for general use.
     std::span<const Oklab> cached_oklab() const noexcept;
@@ -111,6 +136,11 @@ match(const mesh::Material& material,
 
 void match_batch(std::span<const mesh::Material> in,
                  std::span<chunk::BlockState>    out,
+                 const palette::PaletteDB& db,
+                 MatcherOptions opts = default_options());
+
+void match_batch(std::span<const MatchInput>  in,
+                 std::span<chunk::BlockState> out,
                  const palette::PaletteDB& db,
                  MatcherOptions opts = default_options());
 

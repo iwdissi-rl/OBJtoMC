@@ -382,11 +382,11 @@ void ensure_palette_uploaded(
 // Matcher::match_batch loop 1:1 in semantics. Byte-identical
 // std::vector<chunk::BlockState> output on the same input.
 // ===========================================================================
-void fill_matches_gpu(std::span<const ::objtomc::mesh::Material> in,
-                      std::span<::objtomc::chunk::BlockState>    out,
-                      const ::objtomc::palette::PaletteDB&        db,
-                      std::span<const Oklab>                       palette_oklab,
-                      const MatcherOptions&                        opts)
+void fill_matches_gpu(std::span<const MatchInput>              in,
+                      std::span<::objtomc::chunk::BlockState>  out,
+                      const ::objtomc::palette::PaletteDB&      db,
+                      std::span<const Oklab>                     palette_oklab,
+                      const MatcherOptions&                      opts)
 {
     if (in.size() != out.size()) {
         throw ::objtomc::matcher::matcher_error(
@@ -411,9 +411,10 @@ void fill_matches_gpu(std::span<const ::objtomc::mesh::Material> in,
         }
     }
 
-    // CPU throws on non-finite input material fields. Mirror that check
-    // on host (the kernel would produce garbage NaNs otherwise; better to
-    // fail with the same message as CPU).
+    // CPU throws on non-finite input fields. Mirror that check on host
+    // (the kernel would produce garbage NaNs otherwise; better to fail
+    // with the same message as the CPU MatchInput path). The Material
+    // overload validates before conversion, with material names.
     for (std::size_t i = 0; i < in.size(); ++i) {
         const auto& m = in[i];
         auto finite3 = [](const std::array<float, 3>& v) {
@@ -421,7 +422,8 @@ void fill_matches_gpu(std::span<const ::objtomc::mesh::Material> in,
         };
         if (!finite3(m.kd) || !finite3(m.ke) || !std::isfinite(m.d)) {
             throw ::objtomc::matcher::matcher_error(
-                "non-finite kd/d/ke in material '" + m.name + "'");
+                "non-finite kd/d/ke in match input at index " +
+                std::to_string(i));
         }
     }
 

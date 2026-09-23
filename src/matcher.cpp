@@ -211,6 +211,33 @@ void Matcher::match_batch(std::span<const mesh::Material> in,
                             ", out.size()=" + std::to_string(out.size()));
     }
 
+    // Validate here (where material names are available for the error
+    // message), then delegate to the MatchInput core. Conversion copies
+    // exactly the (kd, ke, d) floats the loop below reads — output is
+    // byte-identical to matching the Materials directly (gated by ctest
+    // match_input_equivalence).
+    std::vector<MatchInput> converted;
+    converted.reserve(in.size());
+    for (const mesh::Material& material : in) {
+        if (!is_finite_array(material.kd) ||
+            !is_finite_array(material.ke) ||
+            !std::isfinite(material.d)) {
+            throw matcher_error(
+                "non-finite kd/d/ke in material '" + material.name + "'");
+        }
+        converted.push_back(MatchInput{material.kd, material.ke, material.d});
+    }
+    match_batch(std::span<const MatchInput>(converted), out);
+}
+
+void Matcher::match_batch(std::span<const MatchInput>  in,
+                          std::span<chunk::BlockState> out) const {
+    if (in.size() != out.size()) {
+        throw matcher_error("batch size mismatch: in.size()=" +
+                            std::to_string(in.size()) +
+                            ", out.size()=" + std::to_string(out.size()));
+    }
+
 #ifdef OBJTOMC_WITH_CUDA
     bool use_gpu = false;
     if (opts_.prefer_gpu == ::objtomc::GpuPreference::ON) {
@@ -227,13 +254,14 @@ void Matcher::match_batch(std::span<const mesh::Material> in,
 #endif
 
     for (std::size_t i = 0; i < in.size(); ++i) {
-        const mesh::Material& material = in[i];
+        const MatchInput& material = in[i];
 
         if (!is_finite_array(material.kd) ||
             !is_finite_array(material.ke) ||
             !std::isfinite(material.d)) {
             throw matcher_error(
-                "non-finite kd/d/ke in material '" + material.name + "'");
+                "non-finite kd/d/ke in match input at index " +
+                std::to_string(i));
         }
 
         const float max_ke = std::max({material.ke[0], material.ke[1], material.ke[2]});
@@ -338,6 +366,14 @@ chunk::BlockState match(const mesh::Material& material,
 
 void match_batch(std::span<const mesh::Material> in,
                  std::span<chunk::BlockState>    out,
+                 const palette::PaletteDB& db,
+                 MatcherOptions opts) {
+    Matcher m(db, opts);
+    m.match_batch(in, out);
+}
+
+void match_batch(std::span<const MatchInput>  in,
+                 std::span<chunk::BlockState> out,
                  const palette::PaletteDB& db,
                  MatcherOptions opts) {
     Matcher m(db, opts);
