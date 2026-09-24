@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace fs  = std::filesystem;
@@ -122,6 +123,23 @@ int main(int argc, char** argv) {
                      ", expected exactly 1.0 for RGB source");
             }
         }
+    }
+
+    // --- 7. non-finite UVs are defined, not UB (Session 62) -----------------
+    // Degenerate (zero-area) triangles in real scan meshes make the Eberly
+    // barycentrics NaN — first hit by the NYC Manhattan capstone asset,
+    // where the pre-fix (int)(NaN * w) cast produced INT_MIN → a wild
+    // out-of-bounds texel read (SIGSEGV). Non-finite coordinates must
+    // resolve to the u=0 / v=0 texel deterministically.
+    const float nan_v = std::nanf("");
+    const float inf_v = std::numeric_limits<float>::infinity();
+    expect_texel(*img, nan_v, 0.25f, red, "u=NaN resolves as u=0 (bottom-left)");
+    expect_texel(*img, 0.25f, nan_v, red, "v=NaN resolves as v=0 (bottom row)");
+    expect_texel(*img, nan_v, nan_v, red, "u=v=NaN resolves as (0,0)");
+    expect_texel(*img, inf_v, 0.25f, red, "u=+inf resolves as u=0");
+    expect_texel(*img, -inf_v, 0.75f, green, "u=-inf resolves as u=0 (top row)");
+    if (tex::sample_alpha(*img, nan_v, nan_v) != 1.0f) {
+        fail("sample_alpha(NaN, NaN) must be defined (1.0 for RGB source)");
     }
 
     std::cout << "PASS: texture_sampling (decode, quadrants, V-flip, wrap, "

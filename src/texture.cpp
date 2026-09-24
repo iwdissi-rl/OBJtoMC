@@ -39,6 +39,16 @@ namespace {
 // Nearest-texel byte offset shared by sample_nearest and sample_alpha so
 // both channels always come from the SAME texel.
 std::size_t texel_offset(const Image& img, float u, float v) noexcept {
+    // Degenerate (zero-area) triangles in real-world scan meshes make the
+    // Eberly closest-point barycentrics — and therefore the recovered
+    // per-voxel UV — NaN (first hit: NYC Manhattan capstone asset,
+    // Session 62; SIGSEGV via (int)(NaN * w) → INT_MIN → huge size_t).
+    // Map non-finite coordinates to 0 so the lookup is defined and
+    // deterministic; finite inputs are untouched (the floor-wrap below
+    // cannot produce a negative index for any finite input).
+    if (!std::isfinite(u)) u = 0.0f;
+    if (!std::isfinite(v)) v = 0.0f;
+
     // Repeat wrap: floor-subtract maps any finite float into [0, 1).
     const float uw = u - std::floor(u);
     const float vw = v - std::floor(v);
