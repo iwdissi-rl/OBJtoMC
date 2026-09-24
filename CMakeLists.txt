@@ -301,6 +301,11 @@ add_library(alignment STATIC src/alignment.cpp)
 target_include_directories(alignment PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(alignment PUBLIC mesh)
 
+# Semantic detection + replacement — v0.5 sub-items (c)/(d), Sessions 70-71.
+add_library(semantic STATIC src/semantic.cpp)
+target_include_directories(semantic PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(semantic PUBLIC chunk)
+
 add_library(tiling STATIC src/tiling.cpp)
 target_include_directories(tiling PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(tiling PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -355,7 +360,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE gltf texture tiling cleanup alignment ZLIB::ZLIB)
+    PRIVATE gltf texture tiling cleanup alignment semantic ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

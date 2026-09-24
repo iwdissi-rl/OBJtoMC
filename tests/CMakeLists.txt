@@ -395,6 +395,11 @@ add_test(
 # Session 56 — v0.4 §5.1 voxel-layer tiled byte-equality gate
 # (research/scale_v04_proposal.md §3.3).
 # Session 67 — v0.5 sub-item (a) deterministic-cleanup unit gates.
+# Sessions 70-71 — v0.5 (c)/(d) semantic detection/replacement unit gates.
+add_executable(test_semantic_ops test_semantic_ops.cpp)
+target_link_libraries(test_semantic_ops PRIVATE semantic chunk)
+add_test(NAME semantic_ops COMMAND test_semantic_ops)
+
 # Session 69 — v0.5 sub-item (b) alignment unit gates.
 add_executable(test_alignment_ops test_alignment_ops.cpp)
 target_link_libraries(test_alignment_ops PRIVATE alignment voxel mesh)

@@ -80,6 +80,13 @@ void print_help(std::ostream& os, const char* argv0) {
         "                                  dominant facade direction lands axis-\n"
         "                                  aligned (kills stair-stepping). auto\n"
         "                                  detects the angle. Default off.\n"
+        "  --semantic {off,trees,buildings,all}\n"
+        "                                  Detect scan objects and replace them\n"
+        "                                  with Minecraft-native structures\n"
+        "                                  (procedural trees; parametric\n"
+        "                                  buildings with windows). Requires the\n"
+        "                                  monolithic path (--tiling off).\n"
+        "                                  Default off.\n"
         "  --cleanup {on,off}              Deterministic scan cleanup (pinhole\n"
         "                                  fill + floating-crumb removal) before\n"
         "                                  matching. Default off. Works with\n"
@@ -251,6 +258,22 @@ ParsedCli parse_cli(int argc, char** argv) {
                     throw usage_error(std::string("--align: '") + std::string(v) +
                                       "' is out of float range");
                 }
+            }
+        } else if (a == "--semantic") {
+            const auto v = next_arg(i, "semantic");
+            if (v == "off") {
+                cli.opts.semantic.trees = false;
+                cli.opts.semantic.buildings = false;
+            } else if (v == "trees") {
+                cli.opts.semantic.trees = true;
+            } else if (v == "buildings") {
+                cli.opts.semantic.buildings = true;
+            } else if (v == "all") {
+                cli.opts.semantic.trees = true;
+                cli.opts.semantic.buildings = true;
+            } else {
+                throw usage_error(std::string("--semantic: '") + std::string(v) +
+                                  "' is not one of {off, trees, buildings, all}");
             }
         } else if (a == "--cleanup") {
             const auto v = next_arg(i, "cleanup");

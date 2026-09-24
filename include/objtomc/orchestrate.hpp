@@ -11,6 +11,7 @@
 #include "objtomc/cleanup.hpp"   // cleanup::CleanupOptions
 #include "objtomc/matcher.hpp"   // matcher::MatcherOptions
 #include "objtomc/mesh.hpp"      // mesh::Mesh (voxel_size_for_target)
+#include "objtomc/semantic.hpp"  // semantic::SemanticOptions
 #include "objtomc/voxel.hpp"     // voxel::AxisConvention
 
 namespace objtomc::orch {
@@ -89,6 +90,13 @@ struct OrchestrateOptions {
     // identical pipeline).
     bool                                     align_auto;            // default false
     std::optional<float>                     align_degrees;         // default nullopt
+
+    // ----- Semantic replacement (Sessions 70-71, v0.5 (c)/(d)) --------------
+    // Opt-in, deterministic-but-not-byte-gated tree/building detection +
+    // Minecraft-native replacement (see objtomc/semantic.hpp). Requires
+    // the monolithic path (tiling OFF or a fitting AUTO grid) — semantic
+    // analysis is whole-world. Default: both off.
+    semantic::SemanticOptions                semantic;
 
     // ----- Matcher (forwarded verbatim) -----------------------------------
     matcher::MatcherOptions                  matcher_opts;

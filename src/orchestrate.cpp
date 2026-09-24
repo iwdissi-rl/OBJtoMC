@@ -54,6 +54,7 @@
 #include "objtomc/mesh.hpp"
 #include "objtomc/nbt.hpp"
 #include "objtomc/palette.hpp"
+#include "objtomc/semantic.hpp"
 #include "objtomc/texture.hpp"
 #include "objtomc/tiling.hpp"
 #include "objtomc/voxel.hpp"
@@ -80,6 +81,7 @@ OrchestrateOptions default_options() noexcept {
     o.cleanup                 = cleanup::CleanupOptions{};  // off
     o.align_auto              = false;
     o.align_degrees           = std::nullopt;
+    o.semantic                = semantic::SemanticOptions{};  // off
     o.matcher_opts            = matcher::default_options();
     o.palette_csv             = std::nullopt;
     o.level_name              = "objtomc world";
@@ -1008,6 +1010,13 @@ void orchestrate(const std::filesystem::path& obj_path,
     const palette::PaletteDB db = palette::load_default_palette();
     matcher::Matcher matcher_(db, opts.matcher_opts);
 
+    if ((opts.semantic.trees || opts.semantic.buildings) && use_tiling) {
+        throw orchestrate_error(
+            "--semantic requires the monolithic path (whole-world "
+            "analysis): use --tiling off and raise --max-grid-cells if "
+            "needed");
+    }
+
     if (!use_tiling) {
         // =========== Monolithic pipeline (pre-v0.4 flow, byte-stable) ===========
         log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
@@ -1087,6 +1096,63 @@ void orchestrate(const std::filesystem::path& obj_path,
             });
         }
 
+        // ---- 4d. Semantic replacement (Sessions 70-71, v0.5 (c)/(d)) ----
+        std::vector<std::pair<std::array<std::int32_t, 3>, chunk::BlockState>>
+            stamps;
+        if (opts.semantic.trees || opts.semantic.buildings) {
+            const auto run_pass =
+                [&](auto&& pass, const char* what) {
+                    std::vector<std::array<std::int32_t, 3>> spos(
+                        positions.size());
+                    std::vector<std::array<float, 3>> skd(mats.size());
+                    for (std::size_t i = 0; i < positions.size(); ++i) {
+                        spos[i] = {positions[i].x, positions[i].y,
+                                   positions[i].z};
+                        skd[i]  = mats[i].kd;
+                    }
+                    const semantic::SemanticResult r = pass(spos, skd);
+                    std::size_t kept = 0;
+                    for (std::size_t i = 0; i < positions.size(); ++i) {
+                        if (r.drop[i]) continue;
+                        positions[kept] = positions[i];
+                        mats[kept]      = mats[i];
+                        ++kept;
+                    }
+                    positions.resize(kept);
+                    mats.resize(kept);
+                    stamps.insert(stamps.end(), r.stamps.begin(),
+                                  r.stamps.end());
+                    log("[semantic] " + std::string(what) + ": " +
+                        std::to_string(r.detected) + " detected, " +
+                        std::to_string(r.stamps.size()) + " blocks stamped");
+                };
+            if (opts.semantic.trees) {
+                run_pass(
+                    [&](auto& sp, auto& sk) {
+                        return semantic::detect_and_replace_trees(
+                            sp, sk, opts.semantic);
+                    },
+                    "trees");
+            }
+            if (opts.semantic.buildings) {
+                run_pass(
+                    [&](auto& sp, auto& sk) {
+                        return semantic::detect_and_replace_buildings(
+                            sp, sk, opts.semantic,
+                            [&](const std::array<float, 3>& c) {
+                                const matcher::MatchInput mi{
+                                    c, {0.0f, 0.0f, 0.0f}, 1.0f};
+                                chunk::BlockState bs;
+                                matcher_.match_batch(
+                                    std::span<const matcher::MatchInput>(&mi, 1),
+                                    std::span<chunk::BlockState>(&bs, 1));
+                                return bs;
+                            });
+                    },
+                    "buildings");
+            }
+        }
+
         // ---- 5b. Match materials -> BlockStates ----
         log("[matcher] matching " + std::to_string(mats.size()) + " voxels");
         std::vector<chunk::BlockState> states(mats.size());
@@ -1094,8 +1160,18 @@ void orchestrate(const std::filesystem::path& obj_path,
 
         // ---- 6. Bucket by chunk (§3.4 two-pass routing) ----
         ChunkMap chunks = bucket_chunks(positions, states);
-        log("[chunk]   routing " + std::to_string(occ) + " voxels into " +
-            std::to_string(chunks.size()) + " chunks");
+        // Stamps are appended AFTER the matched voxels so the per-chunk
+        // map's last-write-wins assignment lets replacements override any
+        // surviving scan voxel at the same position.
+        for (const auto& [p, state] : stamps) {
+            chunks[{world_to_chunk(p[0]), world_to_chunk(p[2])}].push_back(
+                VoxelEntry{world_to_local(p[0]), p[1], world_to_local(p[2]),
+                           state});
+        }
+        log("[chunk]   routing " + std::to_string(positions.size()) +
+            " voxels + " + std::to_string(stamps.size()) +
+            " stamped blocks into " + std::to_string(chunks.size()) +
+            " chunks");
 
         // ---- 7-10. Sort / group / build / write regions ----
         write_chunk_batch(world_dir, chunks, world_height, now_unix_s, log);
