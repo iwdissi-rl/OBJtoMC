@@ -990,13 +990,6 @@ void orchestrate(const std::filesystem::path& obj_path,
     const palette::PaletteDB db = palette::load_default_palette();
     matcher::Matcher matcher_(db, opts.matcher_opts);
 
-    if (opts.cleanup.enabled && use_tiling) {
-        throw orchestrate_error(
-            "cleanup with tiled output is not supported yet (v0.5 Session 68 "
-            "apron scheme); use --tiling off (raise --max-grid-cells if "
-            "needed) or --cleanup off");
-    }
-
     if (!use_tiling) {
         // =========== Monolithic pipeline (pre-v0.4 flow, byte-stable) ===========
         log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
@@ -1109,21 +1102,86 @@ void orchestrate(const std::filesystem::path& obj_path,
         frame_vs     = plan->voxel_size;
 
         std::size_t total_occ = 0;
+        std::size_t total_filled = 0, total_removed = 0;
         for (std::size_t ti = 0; ti < plan->tiles.size(); ++ti) {
-            const tiling::TileResult res = tiling::voxelize_tile(
-                m, vopts, plan->tiles[ti],
-                std::span<const std::int32_t>(plan->tile_faces[ti]));
+            const tiling::Tile& tile = plan->tiles[ti];
+            const int x0 = tile.offset_xz[0];
+            const int z0 = tile.offset_xz[1];
+            const int wx = tile.dims_xz[0];
+            const int wz = tile.dims_xz[1];
+
+            // With cleanup enabled, voxelize the tile's window EXPANDED by
+            // the apron A = crumb_max_voxels + 1 (Session 68, proposal §2):
+            // every fill/crumb decision affecting the cropped tile then
+            // sees the same neighbourhood the monolithic run would, so the
+            // cleaned tiled world is byte-identical to the cleaned
+            // monolithic world (gated by orchestrate_cleanup_tiled_
+            // equality). The clipped-edge rules in cleanup:: handle the
+            // window boundary conservatively; components/fills that the
+            // rules treat specially are provably >= A away from the tile.
+            tiling::TileResult res;
+            int crop_x0 = 0, crop_z0 = 0;
+            if (opts.cleanup.enabled) {
+                const int apron = opts.cleanup.crumb_max_voxels + 1;
+                const int ex0 = std::max(0, x0 - apron);
+                const int ez0 = std::max(0, z0 - apron);
+                const int ex1 = std::min(plan->grid_dims[0], x0 + wx + apron);
+                const int ez1 = std::min(plan->grid_dims[2], z0 + wz + apron);
+                tiling::Tile ext;
+                ext.offset_xz = {ex0, ez0};
+                ext.dims_xz   = {ex1 - ex0, ez1 - ez0};
+
+                // Faces for the expanded window: union of the exact bins
+                // of every plan tile the window overlaps (bins are exact,
+                // so the union is a superset of every face that can touch
+                // any expanded-window cell). Ascending order restored for
+                // the disambiguation tie-break.
+                std::vector<std::int32_t> faces;
+                for (std::size_t tj = 0; tj < plan->tiles.size(); ++tj) {
+                    const tiling::Tile& t2 = plan->tiles[tj];
+                    if (t2.offset_xz[0] < ex1 &&
+                        t2.offset_xz[0] + t2.dims_xz[0] > ex0 &&
+                        t2.offset_xz[1] < ez1 &&
+                        t2.offset_xz[1] + t2.dims_xz[1] > ez0) {
+                        faces.insert(faces.end(),
+                                     plan->tile_faces[tj].begin(),
+                                     plan->tile_faces[tj].end());
+                    }
+                }
+                std::sort(faces.begin(), faces.end());
+                faces.erase(std::unique(faces.begin(), faces.end()),
+                            faces.end());
+
+                res = tiling::voxelize_tile(
+                    m, vopts, ext, std::span<const std::int32_t>(faces));
+                cleanup::ClippedEdges clipped;
+                clipped.x_lo = ex0 > 0;
+                clipped.x_hi = ex1 < plan->grid_dims[0];
+                clipped.z_lo = ez0 > 0;
+                clipped.z_hi = ez1 < plan->grid_dims[2];
+                const auto st = cleanup::apply_cleanup(
+                    res.cells, res.tris, res.dims, opts.cleanup, clipped);
+                total_filled  += st.filled;   // NOTE: apron overlap double-counts; log is indicative
+                total_removed += st.removed;
+                crop_x0 = x0 - ex0;
+                crop_z0 = z0 - ez0;
+            } else {
+                res = tiling::voxelize_tile(
+                    m, vopts, tile,
+                    std::span<const std::int32_t>(plan->tile_faces[ti]));
+            }
 
             std::vector<matcher::MatchInput> mats;
             std::vector<WorldPos>            positions;
-            const int x0 = res.tile.offset_xz[0];
-            const int z0 = res.tile.offset_xz[1];
-            const int wx = res.dims[0];
-            const int wz = res.dims[2];
-            std::size_t li = 0;
             for (int y = 0; y < res.dims[1]; ++y) {
                 for (int lz = 0; lz < wz; ++lz) {
-                    for (int lx = 0; lx < wx; ++lx, ++li) {
+                    for (int lx = 0; lx < wx; ++lx) {
+                        const std::size_t li =
+                            static_cast<std::size_t>(crop_x0 + lx) +
+                            static_cast<std::size_t>(res.dims[0]) *
+                                (static_cast<std::size_t>(crop_z0 + lz) +
+                                 static_cast<std::size_t>(res.dims[2]) *
+                                     static_cast<std::size_t>(y));
                         const std::int32_t mid = res.cells[li];
                         if (mid == voxel::EMPTY) continue;
                         emit_voxel(x0 + lx, y, z0 + lz, mid, res.tris[li],
@@ -1143,6 +1201,11 @@ void orchestrate(const std::filesystem::path& obj_path,
             write_chunk_batch(world_dir, chunks, world_height, now_unix_s, log);
         }
         log("[voxel]   occupied = " + std::to_string(total_occ));
+        if (opts.cleanup.enabled) {
+            log("[cleanup] filled ~" + std::to_string(total_filled) +
+                " pinholes, removed ~" + std::to_string(total_removed) +
+                " crumb voxels (apron-overlap counts are indicative)");
+        }
         if (total_occ == 0) {
             log("[orch]    warning: no occupied voxels; writing empty world");
             // Match the monolithic empty-world contract: world_dir +

@@ -29,17 +29,27 @@ inline std::size_t idx_of(int x, int y, int z, const std::array<int, 3>& d) {
 std::size_t pinhole_fill(std::vector<std::int32_t>& cells,
                          std::vector<std::int32_t>& tris,
                          const std::array<int, 3>& d,
-                         int min_neighbors) {
+                         int min_neighbors,
+                         const ClippedEdges& clipped) {
     const std::vector<std::int32_t> before = cells;   // snapshot
 
     struct Fill { std::size_t at; std::int32_t mid; std::int32_t tri; };
     std::vector<Fill> fills;
 
+    // Fill-eligible coordinate ranges: on a CLIPPED side the outermost
+    // layer's 6-neighbourhood extends past the window, so its fill
+    // decision could differ from the whole-grid run — skip it (see the
+    // ClippedEdges contract in the header).
+    const int x_first = clipped.x_lo ? 1 : 0;
+    const int x_last  = d[0] - (clipped.x_hi ? 2 : 1);
+    const int z_first = clipped.z_lo ? 1 : 0;
+    const int z_last  = d[2] - (clipped.z_hi ? 2 : 1);
+
     static constexpr int OFF[6][3] = {{-1, 0, 0}, {1, 0, 0}, {0, -1, 0},
                                       {0, 1, 0},  {0, 0, -1}, {0, 0, 1}};
     for (int y = 0; y < d[1]; ++y) {
-        for (int z = 0; z < d[2]; ++z) {
-            for (int x = 0; x < d[0]; ++x) {
+        for (int z = z_first; z <= z_last; ++z) {
+            for (int x = x_first; x <= x_last; ++x) {
                 const std::size_t i = idx_of(x, y, z, d);
                 if (before[i] != EMPTY) continue;
 
@@ -91,7 +101,8 @@ std::size_t pinhole_fill(std::vector<std::int32_t>& cells,
 std::size_t remove_crumbs(std::vector<std::int32_t>& cells,
                           std::vector<std::int32_t>& tris,
                           const std::array<int, 3>& d,
-                          int max_voxels) {
+                          int max_voxels,
+                          const ClippedEdges& clipped) {
     std::vector<std::uint8_t> visited(cells.size(), 0);
     std::vector<std::size_t>  stack;
     std::vector<std::size_t>  component;
@@ -107,6 +118,7 @@ std::size_t remove_crumbs(std::vector<std::int32_t>& cells,
                 stack.assign(1, seed);
                 visited[seed] = 1;
                 bool small_enough = true;
+                bool touches_clip = false;
                 while (!stack.empty()) {
                     const std::size_t cur = stack.back();
                     stack.pop_back();
@@ -128,6 +140,14 @@ std::size_t remove_crumbs(std::vector<std::int32_t>& cells,
                         rem / static_cast<std::size_t>(d[0]));
                     const int cx = static_cast<int>(
                         rem % static_cast<std::size_t>(d[0]));
+                    // Keep-if-touching-a-clipped-edge (header contract):
+                    // the window can't see the rest of this component.
+                    if ((clipped.x_lo && cx == 0) ||
+                        (clipped.x_hi && cx == d[0] - 1) ||
+                        (clipped.z_lo && cz == 0) ||
+                        (clipped.z_hi && cz == d[2] - 1)) {
+                        touches_clip = true;
+                    }
                     for (int oy = -1; oy <= 1; ++oy) {
                         for (int oz = -1; oz <= 1; ++oz) {
                             for (int ox = -1; ox <= 1; ++ox) {
@@ -146,7 +166,7 @@ std::size_t remove_crumbs(std::vector<std::int32_t>& cells,
                         }
                     }
                 }
-                if (small_enough) {
+                if (small_enough && !touches_clip) {
                     for (const std::size_t i : component) {
                         cells[i] = EMPTY;
                         tris[i]  = EMPTY;
@@ -164,7 +184,8 @@ std::size_t remove_crumbs(std::vector<std::int32_t>& cells,
 CleanupStats apply_cleanup(std::vector<std::int32_t>& cells,
                            std::vector<std::int32_t>& tris,
                            const std::array<int, 3>& dims,
-                           const CleanupOptions& opts) {
+                           const CleanupOptions& opts,
+                           const ClippedEdges& clipped) {
     if (opts.fill_min_neighbors < 1 || opts.fill_min_neighbors > 6) {
         throw std::invalid_argument(
             "cleanup: fill_min_neighbors must be in [1, 6], got " +
@@ -184,10 +205,11 @@ CleanupStats apply_cleanup(std::vector<std::int32_t>& cells,
 
     CleanupStats stats;
     if (!opts.enabled) return stats;
-    stats.filled = pinhole_fill(cells, tris, dims, opts.fill_min_neighbors);
+    stats.filled = pinhole_fill(cells, tris, dims, opts.fill_min_neighbors,
+                                clipped);
     if (opts.crumb_max_voxels > 0) {
         stats.removed = remove_crumbs(cells, tris, dims,
-                                      opts.crumb_max_voxels);
+                                      opts.crumb_max_voxels, clipped);
     }
     return stats;
 }

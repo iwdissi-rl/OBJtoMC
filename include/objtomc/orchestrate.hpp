@@ -74,9 +74,10 @@ struct OrchestrateOptions {
     // ----- Deterministic voxel cleanup (Session 67, v0.5 sub-item (a)) ------
     // Pinhole fill + crumb removal on the voxel grid before matching
     // (research/semantic_reconstruction_proposal.md §2). Default OFF —
-    // the default pipeline stays byte-identical. Session 67 supports the
-    // monolithic path only; cleanup with tiling (apron scheme) lands in
-    // Session 68 and currently throws orchestrate_error.
+    // the default pipeline stays byte-identical. Works in both monolithic
+    // and tiled modes; tiled cleanup uses the Session 68 apron scheme and
+    // is byte-identical to monolithic cleanup (ctest
+    // orchestrate_cleanup_tiled_equality).
     cleanup::CleanupOptions                  cleanup;
 
     // ----- Matcher (forwarded verbatim) -----------------------------------

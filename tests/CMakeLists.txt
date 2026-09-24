@@ -479,6 +479,15 @@ add_test(NAME orchestrate_determinism COMMAND test_orchestrate_determinism)
 # Session 63 — v0.4 item #2 end-to-end: AUTO height extension, embedded
 # datapack + level.dat pack entry + parametrised chunk yPos; and the
 # default-fitting no-datapack contract.
+# Session 68 — v0.5 (a) tiled-apron cleanup byte-equality gate.
+add_executable(test_orchestrate_cleanup_tiled_equality
+               test_orchestrate_cleanup_tiled_equality.cpp)
+target_link_libraries(test_orchestrate_cleanup_tiled_equality PRIVATE orchestrate)
+add_test(
+    NAME orchestrate_cleanup_tiled_equality
+    COMMAND test_orchestrate_cleanup_tiled_equality ${MESH_FIXTURES_DIR}/bunny.obj
+)
+
 add_executable(test_orchestrate_extended_height test_orchestrate_extended_height.cpp)
 target_link_libraries(test_orchestrate_extended_height PRIVATE orchestrate ZLIB::ZLIB)
 add_test(NAME orchestrate_extended_height COMMAND test_orchestrate_extended_height)
