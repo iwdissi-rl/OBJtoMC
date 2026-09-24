@@ -75,6 +75,7 @@ OrchestrateOptions default_options() noexcept {
     o.max_grid_cells          = voxel::MAX_GRID_CELLS_DEFAULT;
     o.world_origin            = {0, -60, 0};
     o.tiling                  = OrchestrateOptions::TilingMode::AUTO;
+    o.world_height            = std::nullopt;  // AUTO — extend only when needed
     o.matcher_opts            = matcher::default_options();
     o.palette_csv             = std::nullopt;
     o.level_name              = "objtomc world";
@@ -249,6 +250,14 @@ nbt::Compound build_level_dat_compound(const OrchestrateOptions& opts,
         nbt::Compound packs;
         nbt::List enabled{nbt::TagType::String};
         enabled.push_string("vanilla");
+        // Session 63 (v0.4 item #2): a non-default world height ships as a
+        // world-embedded datapack; the enabled-entry naming
+        // ("file/<packname>") is verbatim from the Session 61 capture's
+        // level.dat.
+        if (opts.world_height.has_value() &&
+            !opts.world_height->is_default()) {
+            enabled.push_string("file/objtomc_height");
+        }
         packs.put_list("Enabled", std::move(enabled));
 
         nbt::List disabled{nbt::TagType::String};
@@ -395,22 +404,133 @@ void validate_world_dir(const std::filesystem::path& world_dir) {
     }
 }
 
-void validate_y_range(int dim_y, const std::array<std::int32_t, 3>& world_origin) {
+void validate_y_range(int dim_y, const std::array<std::int32_t, 3>& world_origin,
+                      const chunk::WorldHeight& wh) {
     const std::int64_t y_lo = world_origin[1];
     const std::int64_t y_hi = static_cast<std::int64_t>(world_origin[1]) + dim_y;
-    if (y_lo < chunk::WORLD_BOTTOM_Y) {
+    if (y_lo < wh.min_y) {
         throw orchestrate_error(
             "world_origin[1] (" + std::to_string(world_origin[1]) +
-            ") is below WORLD_BOTTOM_Y (" +
-            std::to_string(chunk::WORLD_BOTTOM_Y) + ")");
+            ") is below the world's min_y (" +
+            std::to_string(wh.min_y) + ")");
     }
-    if (y_hi > chunk::WORLD_TOP_Y) {
+    if (y_hi > wh.top_y_exclusive()) {
         throw orchestrate_error(
             "world_origin[1] + voxel_grid_dim_y (" + std::to_string(y_hi) +
-            ") exceeds WORLD_TOP_Y (" +
-            std::to_string(chunk::WORLD_TOP_Y) +
+            ") exceeds the world's top (" +
+            std::to_string(wh.top_y_exclusive()) +
             "); reduce dim_y or pick a smaller voxel-grid Y extent");
     }
+}
+
+// ---------------------------------------------------------------------------
+// resolve_world_height — Session 63 (v0.4 item #2). AUTO (nullopt): the
+// vanilla dimension when the model's Y span fits it, else the smallest
+// multiple-of-16 extension containing both the vanilla span and the model
+// (keeping the vanilla floor/ceiling as minimums so default-looking worlds
+// stay default). Explicit values are validated as-is. An unfittable span
+// (beyond the vanilla datapack limits) reports as orchestrate_error.
+// ---------------------------------------------------------------------------
+chunk::WorldHeight resolve_world_height(
+        const std::optional<chunk::WorldHeight>& requested,
+        int dim_y,
+        const std::array<std::int32_t, 3>& world_origin) {
+    if (requested.has_value()) {
+        requested->validate();
+        return *requested;
+    }
+    const chunk::WorldHeight def{};
+    const int y_lo = world_origin[1];
+    const int y_hi = world_origin[1] + dim_y;
+    if (y_lo >= def.min_y && y_hi <= def.top_y_exclusive()) {
+        return def;
+    }
+    const auto floor16 = [](int v) {
+        return (v >= 0) ? (v / 16) * 16 : -(((-v) + 15) / 16) * 16;
+    };
+    const auto ceil16 = [](int v) {
+        return (v >= 0) ? ((v + 15) / 16) * 16 : -((-v) / 16) * 16;
+    };
+    chunk::WorldHeight wh;
+    wh.min_y  = std::min(def.min_y, floor16(y_lo));
+    wh.height = std::max(def.top_y_exclusive(), ceil16(y_hi)) - wh.min_y;
+    try {
+        wh.validate();
+    } catch (const chunk::chunk_error& e) {
+        throw orchestrate_error(
+            "model Y span [" + std::to_string(y_lo) + ", " +
+            std::to_string(y_hi) + ") cannot fit even a datapack-extended "
+            "world: " + e.what());
+    }
+    return wh;
+}
+
+// ---------------------------------------------------------------------------
+// write_height_datapack — Session 63 (v0.4 item #2). Emits the world-
+// embedded datapack that raises the overworld's dimension height:
+//   <world>/datapacks/objtomc_height/pack.mcmeta            (pack_format 71)
+//   <world>/datapacks/objtomc_height/data/minecraft/
+//       dimension_type/overworld.json                       (17-field set)
+// Shapes verified against the Session 60.1 Higher Heights 1.21.5 reference
+// artifact + the Session 61 capture (research/extended_height_proposal.md
+// §5 Q1/Q2). All fields carry vanilla overworld values except the height
+// trio; logical_height = height so gameplay (chorus/portal) tracks the
+// build limit. level.dat lists the pack as "file/objtomc_height"
+// (build_level_dat_compound).
+// ---------------------------------------------------------------------------
+void write_height_datapack(const std::filesystem::path& world_dir,
+                           const chunk::WorldHeight& wh) {
+    namespace fs = std::filesystem;
+    const fs::path pack_dir = world_dir / "datapacks" / "objtomc_height";
+    const fs::path dim_dir  = pack_dir / "data" / "minecraft" / "dimension_type";
+    std::error_code ec;
+    fs::create_directories(dim_dir, ec);
+    if (ec) {
+        throw orchestrate_error("cannot create datapack dirs: " + ec.message());
+    }
+
+    const auto write_file = [](const fs::path& p, const std::string& body) {
+        std::ofstream out(p, std::ios::binary);
+        if (!out) {
+            throw orchestrate_error("cannot write " + p.string());
+        }
+        out << body;
+    };
+
+    write_file(pack_dir / "pack.mcmeta",
+        "{\n"
+        "  \"pack\": {\n"
+        "    \"pack_format\": 71,\n"
+        "    \"description\": \"objtomc extended world height (min_y " +
+        std::to_string(wh.min_y) + ", height " + std::to_string(wh.height) +
+        "). Removing this datapack corrupts the world.\"\n"
+        "  }\n"
+        "}\n");
+
+    write_file(dim_dir / "overworld.json",
+        "{\n"
+        "  \"ambient_light\": 0,\n"
+        "  \"bed_works\": true,\n"
+        "  \"coordinate_scale\": 1,\n"
+        "  \"effects\": \"minecraft:overworld\",\n"
+        "  \"has_ceiling\": false,\n"
+        "  \"has_raids\": true,\n"
+        "  \"has_skylight\": true,\n"
+        "  \"height\": " + std::to_string(wh.height) + ",\n"
+        "  \"infiniburn\": \"#minecraft:infiniburn_overworld\",\n"
+        "  \"logical_height\": " + std::to_string(wh.height) + ",\n"
+        "  \"min_y\": " + std::to_string(wh.min_y) + ",\n"
+        "  \"monster_spawn_block_light_limit\": 0,\n"
+        "  \"monster_spawn_light_level\": {\n"
+        "    \"type\": \"minecraft:uniform\",\n"
+        "    \"max_inclusive\": 7,\n"
+        "    \"min_inclusive\": 0\n"
+        "  },\n"
+        "  \"natural\": true,\n"
+        "  \"piglin_safe\": false,\n"
+        "  \"respawn_anchor_works\": false,\n"
+        "  \"ultrawarm\": false\n"
+        "}\n");
 }
 
 // Bucket entry stored once per voxel during the routing pass (§3.4).
@@ -477,6 +597,7 @@ ChunkMap bucket_chunks(const std::vector<WorldPos>& positions,
 // ---------------------------------------------------------------------------
 void write_chunk_batch(const std::filesystem::path& world_dir,
                        const ChunkMap& chunks,
+                       const chunk::WorldHeight& wh,
                        std::int64_t now_unix_s,
                        const std::function<void(const std::string&)>& log) {
     namespace fs = std::filesystem;
@@ -537,7 +658,8 @@ void write_chunk_batch(const std::filesystem::path& world_dir,
                 per_chunk[{e.local_x, e.world_y, e.local_z}] = e.state;
             }
 
-            chunk::ChunkBuilder builder(ck.first, ck.second, "minecraft:plains");
+            chunk::ChunkBuilder builder(ck.first, ck.second,
+                                        "minecraft:plains", wh);
             builder.build([&](int lx, int wy, int lz) -> chunk::BlockState {
                 const auto it = per_chunk.find({lx, wy, lz});
                 return (it != per_chunk.end()) ? it->second
@@ -763,6 +885,12 @@ void orchestrate(const std::filesystem::path& obj_path,
     std::array<float, 3> frame_origin{};
     float frame_vs = 0.0f;
 
+    // Resolved per branch as soon as the grid's Y extent is known
+    // (Session 63, v0.4 item #2). Default-height worlds behave exactly as
+    // pre-63; non-default resolutions emit the height datapack + the
+    // level.dat pack entry in the shared tail below.
+    chunk::WorldHeight world_height{};
+
     // ---- 4b. Per-voxel MatchInput assembly (shared by both branches) ----
     // (gx, gy, gz) are GLOBAL grid cell indices; tri is the voxel's
     // winning GLOBAL face index. Byte-equality-critical: box_centre uses
@@ -869,8 +997,16 @@ void orchestrate(const std::filesystem::path& obj_path,
         log("[voxel]   grid dims = " + std::to_string(dims[0]) + " x " +
             std::to_string(dims[1]) + " x " + std::to_string(dims[2]));
 
-        // ---- 3. Y-range validation against MC world height ----
-        validate_y_range(dims[1], opts.world_origin);
+        // ---- 3. World-height resolution + Y-range validation ----
+        world_height = resolve_world_height(opts.world_height, dims[1],
+                                            opts.world_origin);
+        if (!world_height.is_default()) {
+            log("[height]  extended world height: min_y " +
+                std::to_string(world_height.min_y) + ", height " +
+                std::to_string(world_height.height) +
+                " (datapack will be embedded)");
+        }
+        validate_y_range(dims[1], opts.world_origin, world_height);
 
         const std::size_t occ = grid.occupied_count();
         log("[voxel]   occupied = " + std::to_string(occ));
@@ -908,10 +1044,19 @@ void orchestrate(const std::filesystem::path& obj_path,
             std::to_string(chunks.size()) + " chunks");
 
         // ---- 7-10. Sort / group / build / write regions ----
-        write_chunk_batch(world_dir, chunks, now_unix_s, log);
+        write_chunk_batch(world_dir, chunks, world_height, now_unix_s, log);
     } else {
         // =========== Tiled streaming pipeline (v0.4, proposal §3.2) ===========
-        validate_y_range(plan->grid_dims[1], opts.world_origin);
+        world_height = resolve_world_height(opts.world_height,
+                                            plan->grid_dims[1],
+                                            opts.world_origin);
+        if (!world_height.is_default()) {
+            log("[height]  extended world height: min_y " +
+                std::to_string(world_height.min_y) + ", height " +
+                std::to_string(world_height.height) +
+                " (datapack will be embedded)");
+        }
+        validate_y_range(plan->grid_dims[1], opts.world_origin, world_height);
         log("[voxel]   grid dims = " + std::to_string(plan->grid_dims[0]) +
             " x " + std::to_string(plan->grid_dims[1]) + " x " +
             std::to_string(plan->grid_dims[2]) + " (tiled: " +
@@ -952,21 +1097,32 @@ void orchestrate(const std::filesystem::path& obj_path,
             log("[tile]    tile " + std::to_string(ti) + ": " +
                 std::to_string(mats.size()) + " voxels, " +
                 std::to_string(chunks.size()) + " chunks");
-            write_chunk_batch(world_dir, chunks, now_unix_s, log);
+            write_chunk_batch(world_dir, chunks, world_height, now_unix_s, log);
         }
         log("[voxel]   occupied = " + std::to_string(total_occ));
         if (total_occ == 0) {
             log("[orch]    warning: no occupied voxels; writing empty world");
             // Match the monolithic empty-world contract: world_dir +
             // region/ exist even with zero region files.
-            write_chunk_batch(world_dir, ChunkMap{}, now_unix_s, log);
+            write_chunk_batch(world_dir, ChunkMap{}, world_height, now_unix_s, log);
         }
     }
 
-    // ---- 11. Write level.dat ----
+    // ---- 11. Write level.dat (+ height datapack when non-default) ----
+    // level.dat must carry the resolved height so DataPacks.Enabled lists
+    // the embedded pack; an opts copy keeps write_level_dat's public
+    // signature unchanged.
+    OrchestrateOptions level_opts = opts;
+    level_opts.world_height = world_height;
     const auto level_dat_path = world_dir / "level.dat";
-    write_level_dat(opts, level_dat_path, now_unix_ms);
+    write_level_dat(level_opts, level_dat_path, now_unix_ms);
     log("[level]   wrote " + level_dat_path.string());
+    if (!world_height.is_default()) {
+        write_height_datapack(world_dir, world_height);
+        log("[height]  wrote datapacks/objtomc_height (min_y " +
+            std::to_string(world_height.min_y) + ", height " +
+            std::to_string(world_height.height) + ")");
+    }
 
     log("[orch]    done");
 }

@@ -17,11 +17,51 @@ namespace objtomc::chunk {
 // Format constants for MC 1.21.5 / DataVersion 4325. Values verified
 // empirically against research/anvil_ground_truth.md and the Session-14
 // cross-checks recorded in research/chunk_schema_proposal.md §1.5.
+//
+// Session 63 (v0.4 item #2): WORLD_BOTTOM_Y / WORLD_TOP_Y / SECTIONS_PER_
+// CHUNK are the DEFAULT world-height parameters; ChunkBuilder now takes a
+// WorldHeight allowing datapack-extended dimensions (ground truth:
+// tests/fixtures/extended_height/, research/extended_height_proposal.md).
 // ---------------------------------------------------------------------------
 constexpr int SECTION_SIZE        = 16;     // block side length
-constexpr int SECTIONS_PER_CHUNK  = 24;     // 24 sections × 16 blocks = 384 Y
-constexpr int WORLD_BOTTOM_Y      = -64;    // lowest world Y for 1.21.5
-constexpr int WORLD_TOP_Y         = 320;    // exclusive; 384 = 320 - (-64)
+constexpr int SECTIONS_PER_CHUNK  = 24;     // default: 24 sections × 16 = 384 Y
+constexpr int WORLD_BOTTOM_Y      = -64;    // default lowest world Y for 1.21.5
+constexpr int WORLD_TOP_Y         = 320;    // default exclusive top; 384 span
+
+// ---------------------------------------------------------------------------
+// WorldHeight — the dimension's vertical extent (Session 63, v0.4 item #2).
+// Defaults to the vanilla overworld (-64, 384). Extended values require a
+// world-embedded datapack overriding minecraft:overworld's dimension_type
+// (the orchestrate layer emits it); vanilla constraints per the Session 61
+// ground truth + minecraft.wiki/w/Dimension_type:
+//   min_y, height multiples of 16; min_y >= -2032; height in [16, 4064];
+//   min_y + height <= 2032.
+// validate() throws chunk_error on violation.
+//
+// Ground-truth facts this parametrisation encodes (Session 61 capture,
+// tests/fixtures/extended_height/chunk_2_-16_h4064.nbt):
+//   - chunk yPos = min_section() (= -127 at min_y -2032);
+//   - the sections list covers the FULL contiguous span, all-air included;
+//   - heightmap entries are heightmap_bits() = bit_width(height) wide
+//     (= ceil(log2(height+1)) for multiple-of-16 heights; 9 at 384, 12 at
+//     4064 — the 12-bit width was proven by decoding the maintainer-built
+//     column against the actual top block).
+// ---------------------------------------------------------------------------
+struct WorldHeight {
+    int min_y  = WORLD_BOTTOM_Y;
+    int height = WORLD_TOP_Y - WORLD_BOTTOM_Y;
+
+    int      top_y_exclusive() const noexcept { return min_y + height; }
+    int      sections()        const noexcept { return height / SECTION_SIZE; }
+    int      min_section()     const noexcept { return min_y / SECTION_SIZE; }
+    unsigned heightmap_bits()  const noexcept;
+
+    bool is_default() const noexcept {
+        return min_y == WORLD_BOTTOM_Y && height == WORLD_TOP_Y - WORLD_BOTTOM_Y;
+    }
+
+    void validate() const;   // throws chunk_error
+};
 
 // ---------------------------------------------------------------------------
 // BlockState: name + properties. Equality is name+properties-equal. Hashing
@@ -70,20 +110,22 @@ public:
     // chunk_x, chunk_z are world-space chunk coordinates and become the
     // chunk-NBT xPos / zPos fields. biome_id is a single biome string
     // (e.g. "minecraft:plains") applied to every section's biome palette.
-    // Both must be non-empty.
+    // Both must be non-empty. wh selects the dimension's vertical extent
+    // (default: vanilla -64..320); wh.validate() runs here.
     ChunkBuilder(std::int32_t chunk_x,
                  std::int32_t chunk_z,
-                 std::string  biome_id);
+                 std::string  biome_id,
+                 WorldHeight  wh = WorldHeight{});
 
     // Materialise the chunk's section + heightmap + biome tree by calling
     // `provider(local_x, world_y, local_z)` for every position in the
-    // 16 × 384 × 16 grid:
+    // 16 × wh.height × 16 grid:
     //   - local_x ∈ [0, SECTION_SIZE)
-    //   - world_y ∈ [WORLD_BOTTOM_Y, WORLD_TOP_Y)
+    //   - world_y ∈ [wh.min_y, wh.top_y_exclusive())
     //   - local_z ∈ [0, SECTION_SIZE)
     //
     // The provider is invoked in section-major order: for each section
-    // index in 0..SECTIONS_PER_CHUNK, then ly, lz, lx (X fastest).
+    // index in 0..wh.sections(), then ly, lz, lx (X fastest).
     //
     // Provider exceptions propagate unmodified. The provider is called
     // exactly once per position.
@@ -118,6 +160,7 @@ private:
     std::int32_t  chunk_x_;
     std::int32_t  chunk_z_;
     std::string   biome_id_;
+    WorldHeight   wh_;
     bool          built_ = false;
 
     // The built tree lives behind a single owned nbt::Compound. The

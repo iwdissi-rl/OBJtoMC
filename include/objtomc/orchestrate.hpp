@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "objtomc/chunk.hpp"     // chunk::WorldHeight
 #include "objtomc/matcher.hpp"   // matcher::MatcherOptions
 #include "objtomc/mesh.hpp"      // mesh::Mesh (voxel_size_for_target)
 #include "objtomc/voxel.hpp"     // voxel::AxisConvention
@@ -55,6 +56,19 @@ struct OrchestrateOptions {
     // PER-TILE grid, not the whole world.
     enum class TilingMode { AUTO, ON, OFF };
     TilingMode                               tiling;                // default AUTO
+
+    // ----- World height (Session 63, v0.4 item #2) --------------------------
+    // nullopt (default) = AUTO: the vanilla (-64, 384) dimension when the
+    // model's Y span fits it; otherwise the smallest multiple-of-16
+    // extension that fits (up to the vanilla datapack limits: min_y >=
+    // -2032, min_y + height <= 2032). Set explicitly to pin. Whenever the
+    // resolved value is non-default, orchestrate embeds a world datapack
+    // (datapacks/objtomc_height/) overriding minecraft:overworld's
+    // dimension_type and lists it in level.dat DataPacks.Enabled — the
+    // world stays vanilla-loadable. NOTE: per the 1.21.2+ behaviour
+    // recorded in research/extended_height_proposal.md, removing a height
+    // datapack corrupts the world — the height is permanent per world.
+    std::optional<chunk::WorldHeight>        world_height;          // default nullopt (AUTO)
 
     // ----- Matcher (forwarded verbatim) -----------------------------------
     matcher::MatcherOptions                  matcher_opts;

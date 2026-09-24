@@ -115,27 +115,27 @@ inline bool heightmap_predicate_v01(const BlockState& bs) noexcept {
 
 // ---------------------------------------------------------------------------
 // Convert a 256-entry column_top_y array (per-column topmost world Y where
-// the heightmap predicate held, or WORLD_BOTTOM_Y - 1 = -65 as the sentinel
-// for "no qualifying block") into 37 longs of 9-bit LSB-first non-straddling
-// packed heightmap values per proposal §3.5.
+// the heightmap predicate held, or wh.min_y - 1 as the sentinel for "no
+// qualifying block") into wh.heightmap_bits()-wide LSB-first non-straddling
+// packed heightmap values per proposal §3.5 (parametrised Session 63; the
+// default WorldHeight reproduces the pre-63 9-bit / 37-long encoding
+// byte-for-byte).
 //
-// Value formula: value = (top_y + 1) - WORLD_BOTTOM_Y. Cross-check 4 in
-// proposal §1.5 empirically validates this against the Superflat fixture
-// (all 256 entries of all 4 heightmaps = 4, matching (-61+1)-(-64) = 4 for
-// the grass surface at world Y = -61).
-//
-// Value range: top_y ∈ [-65, 319] → value ∈ [0, 384], fits in 9 bits (max
-// 511). The sentinel -65 maps cleanly to value 0.
+// Value formula: value = (top_y + 1) - wh.min_y. Cross-check 4 in proposal
+// §1.5 validates the default against the Superflat fixture; the Session 61
+// extended-height capture validates 12-bit at height 4064 (WORLD_SURFACE
+// decode == actual top block).
 // ---------------------------------------------------------------------------
 inline std::vector<std::int64_t> compute_heightmap_longs(
-        const std::array<int, 256>& column_top_y) {
+        const std::array<int, 256>& column_top_y, const WorldHeight& wh) {
     std::array<std::uint32_t, 256> values;
     for (std::size_t i = 0; i < 256; ++i) {
-        const int v = (column_top_y[i] + 1) - WORLD_BOTTOM_Y;
+        const int v = (column_top_y[i] + 1) - wh.min_y;
         values[i] = static_cast<std::uint32_t>(v);
     }
     return pack_lsb_first_nonstraddling(
-        std::span<const std::uint32_t>{values.data(), values.size()}, 9u);
+        std::span<const std::uint32_t>{values.data(), values.size()},
+        wh.heightmap_bits());
 }
 
 // ---------------------------------------------------------------------------
@@ -165,12 +165,15 @@ nbt::Compound block_state_to_nbt(const BlockState& bs) {
 // no data); proper per-cell biome paletting lands in 15c.
 // ---------------------------------------------------------------------------
 nbt::Compound make_section_compound(
-        int section_index,
+        int section_y,
         const std::string& biome_id,
         const std::vector<BlockState>& palette_order,
         const std::array<std::uint32_t, 4096>& block_indices) {
     nbt::Compound section;
-    section.put_byte("Y", static_cast<std::int8_t>(section_index - 4));
+    // Section Y is a TAG_Byte in the chunk format; the full datapack-
+    // extended range -127..126 (min_y -2032, height 4064) fits int8 —
+    // Session 61 ground truth.
+    section.put_byte("Y", static_cast<std::int8_t>(section_y));
 
     {
         nbt::Compound block_states;
@@ -206,13 +209,39 @@ nbt::Compound make_section_compound(
 
 const BlockState& BlockState::air() noexcept { return air_singleton(); }
 
+unsigned WorldHeight::heightmap_bits() const noexcept {
+    // = ceil(log2(height + 1)) for multiple-of-16 heights: the maximum
+    // stored value is exactly `height` (a full column: (top-1)+1-min_y),
+    // and bit_width(height) bits represent it. Ground-truth cross-checks:
+    // 384 → 9 (the pre-63 constant), 4064 → 12 (proven by decoding the
+    // Session 61 capture's WORLD_SURFACE against the actual top block).
+    return static_cast<unsigned>(
+        std::bit_width(static_cast<std::uint64_t>(height)));
+}
+
+void WorldHeight::validate() const {
+    const auto fail = [&](const std::string& why) {
+        throw chunk_error("WorldHeight{min_y=" + std::to_string(min_y) +
+                          ", height=" + std::to_string(height) + "}: " + why);
+    };
+    if (min_y % SECTION_SIZE != 0 || height % SECTION_SIZE != 0) {
+        fail("min_y and height must be multiples of 16");
+    }
+    if (height < 16 || height > 4064) fail("height must be in [16, 4064]");
+    if (min_y < -2032)                fail("min_y must be >= -2032");
+    if (min_y + height > 2032)        fail("min_y + height must be <= 2032");
+}
+
 ChunkBuilder::ChunkBuilder(std::int32_t chunk_x,
                            std::int32_t chunk_z,
-                           std::string  biome_id)
-    : chunk_x_(chunk_x), chunk_z_(chunk_z), biome_id_(std::move(biome_id)) {
+                           std::string  biome_id,
+                           WorldHeight  wh)
+    : chunk_x_(chunk_x), chunk_z_(chunk_z), biome_id_(std::move(biome_id)),
+      wh_(wh) {
     if (biome_id_.empty()) {
         throw chunk_error("ChunkBuilder: biome_id must not be empty");
     }
+    wh_.validate();
 }
 
 std::int32_t       ChunkBuilder::chunk_x()  const noexcept { return chunk_x_;  }
@@ -229,7 +258,7 @@ void ChunkBuilder::build_erased(ProviderFn provider) {
 
     root_.put_int   ("DataVersion",   4325);
     root_.put_int   ("xPos",          chunk_x_);
-    root_.put_int   ("yPos",          -4);
+    root_.put_int   ("yPos",          wh_.min_section());
     root_.put_int   ("zPos",          chunk_z_);
     root_.put_string("Status",        "minecraft:full");
     root_.put_long  ("LastUpdate",    0);
@@ -247,24 +276,26 @@ void ChunkBuilder::build_erased(ProviderFn provider) {
 
     // Heightmap accumulator. Filled during the section-major scan below,
     // then serialised after the sections list has been built. Sentinel
-    // value WORLD_BOTTOM_Y - 1 = -65 means "no qualifying block in this
-    // column" — the value formula in §3.5 then yields 0, which is what
-    // MC expects for the no-qualifying-block sentinel.
+    // value wh.min_y - 1 means "no qualifying block in this column" —
+    // the value formula in §3.5 then yields 0, which is what MC expects
+    // for the no-qualifying-block sentinel.
     std::array<int, 256> column_top_y;
-    column_top_y.fill(WORLD_BOTTOM_Y - 1);
+    column_top_y.fill(wh_.min_y - 1);
 
     // Section-major Y-Z-X iteration per proposal §3.2. The provider is
     // called exactly once per (lx, world_y, lz) for the full
-    // 16 × 384 × 16 grid (98 304 calls per chunk). Within each section we
-    // build a deduplicated palette + a 4096-entry index array, then either
+    // 16 × wh.height × 16 grid. Within each section we build a
+    // deduplicated palette + a 4096-entry index array, then either
     // emit the single-palette form (no `data`) or pack the indices via
     // pack_lsb_first_nonstraddling. During the same scan we accumulate
     // per-column topmost-non-air world_y into column_top_y for heightmap
     // synthesis after the loop — single-provider-call-per-position is the
     // §3.2 contract, so we can't re-walk the grid here.
     nbt::List sections(nbt::TagType::Compound);
-    for (int section_index = 0; section_index < SECTIONS_PER_CHUNK; ++section_index) {
-        const int section_y = section_index - 4;
+    const int n_sections  = wh_.sections();
+    const int min_section = wh_.min_section();
+    for (int section_index = 0; section_index < n_sections; ++section_index) {
+        const int section_y = min_section + section_index;
 
         std::unordered_map<BlockState, std::uint16_t, BlockStateHash> palette_index;
         std::vector<BlockState> palette_order;
@@ -317,20 +348,18 @@ void ChunkBuilder::build_erased(ProviderFn provider) {
         }
 
         sections.push_compound(make_section_compound(
-            section_index, biome_id_, palette_order, block_indices));
+            section_y, biome_id_, palette_order, block_indices));
     }
     root_.put_list("sections", std::move(sections));
 
     // All four heightmaps emitted with the same v0.1 collapsed predicate
-    // (proposal §3.5): identical 37-long arrays, indexed as
-    // `heightmap[lz * 16 + lx]` (Z-major, X-minor) per the MC Wiki spec
-    // (https://minecraft.wiki/w/Heightmap). The fixture is uniform so this
-    // (z, x) layout cannot be empirically cross-checked against vanilla
-    // here; Tier-4 verification of a non-uniform synthesised pattern in
-    // 15d will catch any layout error.
+    // (proposal §3.5): identical arrays (wh.heightmap_bits() wide),
+    // indexed as `heightmap[lz * 16 + lx]` (Z-major, X-minor) per the MC
+    // Wiki spec (https://minecraft.wiki/w/Heightmap).
     {
         nbt::Compound heightmaps;
-        std::vector<std::int64_t> hm_longs = compute_heightmap_longs(column_top_y);
+        std::vector<std::int64_t> hm_longs =
+            compute_heightmap_longs(column_top_y, wh_);
         heightmaps.put_long_array("MOTION_BLOCKING",           hm_longs);
         heightmaps.put_long_array("MOTION_BLOCKING_NO_LEAVES", hm_longs);
         heightmaps.put_long_array("OCEAN_FLOOR",               hm_longs);

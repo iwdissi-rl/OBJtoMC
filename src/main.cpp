@@ -76,6 +76,14 @@ void print_help(std::ostream& os, const char* argv0) {
         "                                  tile per region only when the grid\n"
         "                                  exceeds --max-grid-cells; byte-identical\n"
         "                                  to monolithic output either way).\n"
+        "  --world-height <min_y>,<height> Pin the world's vertical extent\n"
+        "                                  (multiples of 16; min_y >= -2032,\n"
+        "                                  min_y+height <= 2032). Default: auto —\n"
+        "                                  vanilla -64,384 unless the model needs\n"
+        "                                  more, then the smallest fitting\n"
+        "                                  extension via an embedded datapack.\n"
+        "                                  WARNING: a world's height is permanent\n"
+        "                                  (removing the datapack corrupts it).\n"
         "  --world-origin <x,y,z>          World-space block coord of voxel (0,0,0).\n"
         "                                  Three comma-separated ints (default 0,-60,0).\n"
         "  --level-name <string>           World name (default \"objtomc world\").\n"
@@ -211,6 +219,31 @@ ParsedCli parse_cli(int argc, char** argv) {
             } else {
                 throw usage_error(std::string("--tiling: '") + std::string(v) +
                                   "' is not one of {auto, on, off}");
+            }
+        } else if (a == "--world-height") {
+            const auto v = next_arg(i, "world-height");
+            const std::string s{v};
+            const auto comma = s.find(',');
+            if (comma == std::string::npos) {
+                throw usage_error("--world-height expects <min_y>,<height>");
+            }
+            try {
+                std::size_t p1 = 0, p2 = 0;
+                const std::string a1 = s.substr(0, comma);
+                const std::string a2 = s.substr(comma + 1);
+                const long my = std::stol(a1, &p1);
+                const long h  = std::stol(a2, &p2);
+                if (p1 != a1.size() || p2 != a2.size()) {
+                    throw usage_error("--world-height: '" + s +
+                                      "' is not <int>,<int>");
+                }
+                cli.opts.world_height = objtomc::chunk::WorldHeight{
+                    static_cast<int>(my), static_cast<int>(h)};
+            } catch (const std::invalid_argument&) {
+                throw usage_error("--world-height: '" + s +
+                                  "' is not <int>,<int>");
+            } catch (const std::out_of_range&) {
+                throw usage_error("--world-height: '" + s + "' is out of range");
             }
         } else if (a == "--axis-convention") {
             const auto v = next_arg(i, "axis-convention");

@@ -151,6 +151,24 @@ set_tests_properties(chunk_single_stone_oracle PROPERTIES LABELS "oracle")
 add_executable(test_chunk_heightmap test_chunk_heightmap.cpp)
 target_link_libraries(test_chunk_heightmap PRIVATE chunk)
 
+# Session 63 — v0.4 item #2: datapack-extended world height. Helper +
+# oracle gated against the Session 61 maintainer-captured ground truth
+# (tests/fixtures/extended_height/). Error paths run as a plain ctest;
+# the oracle drives the --out mode.
+add_executable(test_chunk_extended_height test_chunk_extended_height.cpp)
+target_link_libraries(test_chunk_extended_height PRIVATE chunk)
+add_test(NAME chunk_extended_height_errors COMMAND test_chunk_extended_height)
+
+add_test(
+    NAME chunk_extended_height_oracle
+    COMMAND ${CMAKE_COMMAND} -E env
+        PATH_TO_BINARY=$<TARGET_FILE:test_chunk_extended_height>
+        GROUND_TRUTH_NBT=${CMAKE_SOURCE_DIR}/tests/fixtures/extended_height/chunk_2_-16_h4064.nbt
+        ${CMAKE_SOURCE_DIR}/tests/oracle_venv/bin/python
+        ${CMAKE_SOURCE_DIR}/tests/oracle/test_chunk_extended_height_oracle.py
+)
+set_tests_properties(chunk_extended_height_oracle PROPERTIES LABELS "oracle")
+
 add_test(
     NAME chunk_heightmap_oracle
     COMMAND ${CMAKE_COMMAND} -E env
@@ -452,6 +470,13 @@ add_test(NAME orchestrate_region_count COMMAND test_orchestrate_region_count)
 add_executable(test_orchestrate_determinism test_orchestrate_determinism.cpp)
 target_link_libraries(test_orchestrate_determinism PRIVATE orchestrate)
 add_test(NAME orchestrate_determinism COMMAND test_orchestrate_determinism)
+
+# Session 63 — v0.4 item #2 end-to-end: AUTO height extension, embedded
+# datapack + level.dat pack entry + parametrised chunk yPos; and the
+# default-fitting no-datapack contract.
+add_executable(test_orchestrate_extended_height test_orchestrate_extended_height.cpp)
+target_link_libraries(test_orchestrate_extended_height PRIVATE orchestrate ZLIB::ZLIB)
+add_test(NAME orchestrate_extended_height COMMAND test_orchestrate_extended_height)
 
 # Session 57 — v0.4 §5.1 orchestrate-level tiled byte-equality gate: the
 # load-bearing check that TilingMode::ON worlds are byte-identical to
