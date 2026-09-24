@@ -394,6 +394,11 @@ add_test(
 
 # Session 56 — v0.4 §5.1 voxel-layer tiled byte-equality gate
 # (research/scale_v04_proposal.md §3.3).
+# Session 67 — v0.5 sub-item (a) deterministic-cleanup unit gates.
+add_executable(test_cleanup_ops test_cleanup_ops.cpp)
+target_link_libraries(test_cleanup_ops PRIVATE cleanup)
+add_test(NAME cleanup_ops COMMAND test_cleanup_ops)
+
 add_executable(test_voxel_tiled_equality test_voxel_tiled_equality.cpp)
 target_link_libraries(test_voxel_tiled_equality PRIVATE tiling voxel mesh)
 add_test(

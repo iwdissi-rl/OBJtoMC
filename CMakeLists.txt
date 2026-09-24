@@ -289,6 +289,13 @@ target_link_libraries(voxel PUBLIC mesh)
 # the voxel layer's windowed CPU kernel. See research/scale_v04_proposal.md
 # §3.1–§3.3 and include/objtomc/tiling.hpp.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Deterministic voxel cleanup — v0.5 sub-item (a), Session 67.
+# See research/semantic_reconstruction_proposal.md §2.
+# ---------------------------------------------------------------------------
+add_library(cleanup STATIC src/cleanup.cpp)
+target_include_directories(cleanup PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 add_library(tiling STATIC src/tiling.cpp)
 target_include_directories(tiling PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(tiling PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -343,7 +350,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE gltf texture tiling ZLIB::ZLIB)
+    PRIVATE gltf texture tiling cleanup ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

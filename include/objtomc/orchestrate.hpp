@@ -8,6 +8,7 @@
 #include <string>
 
 #include "objtomc/chunk.hpp"     // chunk::WorldHeight
+#include "objtomc/cleanup.hpp"   // cleanup::CleanupOptions
 #include "objtomc/matcher.hpp"   // matcher::MatcherOptions
 #include "objtomc/mesh.hpp"      // mesh::Mesh (voxel_size_for_target)
 #include "objtomc/voxel.hpp"     // voxel::AxisConvention
@@ -69,6 +70,14 @@ struct OrchestrateOptions {
     // recorded in research/extended_height_proposal.md, removing a height
     // datapack corrupts the world — the height is permanent per world.
     std::optional<chunk::WorldHeight>        world_height;          // default nullopt (AUTO)
+
+    // ----- Deterministic voxel cleanup (Session 67, v0.5 sub-item (a)) ------
+    // Pinhole fill + crumb removal on the voxel grid before matching
+    // (research/semantic_reconstruction_proposal.md §2). Default OFF —
+    // the default pipeline stays byte-identical. Session 67 supports the
+    // monolithic path only; cleanup with tiling (apron scheme) lands in
+    // Session 68 and currently throws orchestrate_error.
+    cleanup::CleanupOptions                  cleanup;
 
     // ----- Matcher (forwarded verbatim) -----------------------------------
     matcher::MatcherOptions                  matcher_opts;

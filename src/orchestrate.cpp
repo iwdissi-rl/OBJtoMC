@@ -76,6 +76,7 @@ OrchestrateOptions default_options() noexcept {
     o.world_origin            = {0, -60, 0};
     o.tiling                  = OrchestrateOptions::TilingMode::AUTO;
     o.world_height            = std::nullopt;  // AUTO — extend only when needed
+    o.cleanup                 = cleanup::CleanupOptions{};  // off
     o.matcher_opts            = matcher::default_options();
     o.palette_csv             = std::nullopt;
     o.level_name              = "objtomc world";
@@ -989,6 +990,13 @@ void orchestrate(const std::filesystem::path& obj_path,
     const palette::PaletteDB db = palette::load_default_palette();
     matcher::Matcher matcher_(db, opts.matcher_opts);
 
+    if (opts.cleanup.enabled && use_tiling) {
+        throw orchestrate_error(
+            "cleanup with tiled output is not supported yet (v0.5 Session 68 "
+            "apron scheme); use --tiling off (raise --max-grid-cells if "
+            "needed) or --cleanup off");
+    }
+
     if (!use_tiling) {
         // =========== Monolithic pipeline (pre-v0.4 flow, byte-stable) ===========
         log("[voxel]   voxelizing at voxel_size=" + std::to_string(voxel_size));
@@ -1027,11 +1035,46 @@ void orchestrate(const std::filesystem::path& obj_path,
 
         frame_origin = grid.origin_world();
         frame_vs     = grid.voxel_size();
-        grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
-            emit_voxel(vx, vy, vz, mid,
-                       grid.triangle_at_unchecked(vx, vy, vz),
-                       mats, positions);
-        });
+        if (opts.cleanup.enabled) {
+            // ---- 4c. Deterministic cleanup (v0.5 (a), Session 67) ----
+            // VoxelGrid is immutable, so copy its (cells, tris) into
+            // mutable buffers, clean, and emit from those. Same y-z-x
+            // order as for_each_voxel.
+            std::vector<std::int32_t> cl_cells(
+                static_cast<std::size_t>(dims[0]) *
+                static_cast<std::size_t>(dims[1]) *
+                static_cast<std::size_t>(dims[2]));
+            std::vector<std::int32_t> cl_tris(cl_cells.size());
+            {
+                std::size_t i = 0;
+                for (int y = 0; y < dims[1]; ++y)
+                    for (int z = 0; z < dims[2]; ++z)
+                        for (int x = 0; x < dims[0]; ++x, ++i) {
+                            cl_cells[i] = grid.at_unchecked(x, y, z);
+                            cl_tris[i]  = grid.triangle_at_unchecked(x, y, z);
+                        }
+            }
+            const auto st = cleanup::apply_cleanup(
+                cl_cells, cl_tris,
+                {dims[0], dims[1], dims[2]}, opts.cleanup);
+            log("[cleanup] filled " + std::to_string(st.filled) +
+                " pinholes, removed " + std::to_string(st.removed) +
+                " crumb voxels");
+            std::size_t i = 0;
+            for (int y = 0; y < dims[1]; ++y)
+                for (int z = 0; z < dims[2]; ++z)
+                    for (int x = 0; x < dims[0]; ++x, ++i) {
+                        if (cl_cells[i] == voxel::EMPTY) continue;
+                        emit_voxel(x, y, z, cl_cells[i], cl_tris[i],
+                                   mats, positions);
+                    }
+        } else {
+            grid.for_each_voxel([&](int vx, int vy, int vz, std::int32_t mid) {
+                emit_voxel(vx, vy, vz, mid,
+                           grid.triangle_at_unchecked(vx, vy, vz),
+                           mats, positions);
+            });
+        }
 
         // ---- 5b. Match materials -> BlockStates ----
         log("[matcher] matching " + std::to_string(mats.size()) + " voxels");

@@ -76,6 +76,10 @@ void print_help(std::ostream& os, const char* argv0) {
         "                                  tile per region only when the grid\n"
         "                                  exceeds --max-grid-cells; byte-identical\n"
         "                                  to monolithic output either way).\n"
+        "  --cleanup {on,off}              Deterministic scan cleanup (pinhole\n"
+        "                                  fill + floating-crumb removal) before\n"
+        "                                  matching. Default off. Currently\n"
+        "                                  requires --tiling off.\n"
         "  --world-height <min_y>,<height> Pin the world's vertical extent\n"
         "                                  (multiples of 16; min_y >= -2032,\n"
         "                                  min_y+height <= 2032). Default: auto —\n"
@@ -219,6 +223,16 @@ ParsedCli parse_cli(int argc, char** argv) {
             } else {
                 throw usage_error(std::string("--tiling: '") + std::string(v) +
                                   "' is not one of {auto, on, off}");
+            }
+        } else if (a == "--cleanup") {
+            const auto v = next_arg(i, "cleanup");
+            if (v == "on") {
+                cli.opts.cleanup.enabled = true;
+            } else if (v == "off") {
+                cli.opts.cleanup.enabled = false;
+            } else {
+                throw usage_error(std::string("--cleanup: '") + std::string(v) +
+                                  "' is not one of {on, off}");
             }
         } else if (a == "--world-height") {
             const auto v = next_arg(i, "world-height");
