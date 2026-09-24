@@ -48,11 +48,14 @@ vox::VoxelizerOptions cpu_options(float voxel_size) {
 }
 
 // Voxelize monolithically and via tiles at (tile_x, tile_z); compare every
-// cell of every tile window against the monolithic grid.
+// cell of every tile window against the monolithic grid. tile_gpu forces
+// the tile fills onto the GPU path (Session 58, CUDA builds only) while
+// the monolithic reference stays CPU — proving GPU-tiled == CPU-monolithic.
 void check_tiled_equality(const msh::Mesh& mesh,
                           const vox::VoxelizerOptions& opts,
                           int tile_x, int tile_z,
-                          const std::string& label) {
+                          const std::string& label,
+                          bool tile_gpu = false) {
     const vox::VoxelGrid mono = vox::voxelize_mesh(mesh, opts);
     const auto dims = mono.dimensions();
 
@@ -61,10 +64,17 @@ void check_tiled_equality(const msh::Mesh& mesh,
         fail(label + ": plan grid_dims disagree with voxelize_mesh");
     }
 
+    vox::VoxelizerOptions tile_opts = opts;
+#ifdef OBJTOMC_WITH_CUDA
+    if (tile_gpu) tile_opts.prefer_gpu = vox::GpuPreference::ON;
+#else
+    (void)tile_gpu;
+#endif
+
     std::size_t tiled_occupied = 0;
     for (std::size_t ti = 0; ti < plan.tiles.size(); ++ti) {
         const til::TileResult res = til::voxelize_tile(
-            mesh, opts, plan.tiles[ti],
+            mesh, tile_opts, plan.tiles[ti],
             std::span<const std::int32_t>(plan.tile_faces[ti]));
         const int x0 = res.tile.offset_xz[0];
         const int z0 = res.tile.offset_xz[1];
@@ -126,10 +136,21 @@ int main(int argc, char** argv) {
     // Bunny: 69 451 faces at ~64 cells across the longest extent —
     // real disambiguation contention across tile boundaries.
     const msh::Mesh bunny = msh::load_obj(argv[2]);
-    check_tiled_equality(bunny, cpu_options(0.024437f), 24, 16,
+    check_tiled_equality(bunny, cpu_options(0.0024437f), 24, 16,
                          "bunny t24x16");
-    check_tiled_equality(bunny, cpu_options(0.024437f), 17, 23,
+    check_tiled_equality(bunny, cpu_options(0.0024437f), 17, 23,
                          "bunny t17x23");
+
+#ifdef OBJTOMC_WITH_CUDA
+    // Session 58: GPU per-tile fills vs the CPU monolithic reference.
+    // The load-bearing cross-path gate — GPU-tiled must byte-match the
+    // CPU whole-grid result, including the local→global winning-triangle
+    // remap through the packed atomicMin key.
+    check_tiled_equality(bunny, cpu_options(0.0024437f), 24, 16,
+                         "bunny t24x16 GPU-tiled", /*tile_gpu=*/true);
+    check_tiled_equality(cube, cpu_options(0.25f), 3, 2,
+                         "cube t3x2 GPU-tiled", /*tile_gpu=*/true);
+#endif
 
     std::cout << "PASS: voxel_tiled_equality\n";
     return 0;

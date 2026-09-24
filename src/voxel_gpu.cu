@@ -437,11 +437,18 @@ __global__ void disambiguation_kernel(
     int                 dim_x,
     int                 dim_y,
     int                 dim_z,
+    // XZ window of the GLOBAL grid frame (Session 58, v0.4 tiling).
+    // Full-grid callers pass (0, 0, dim_x, dim_z). Storage is
+    // window-local; all geometric arithmetic stays GLOBAL.
+    int                 win_x0,
+    int                 win_z0,
+    int                 win_wx,
+    int                 win_wz,
     float               origin_x,
     float               origin_y,
     float               origin_z,
     float               vs,
-    unsigned long long* best_key)         // size dim_x*dim_y*dim_z
+    unsigned long long* best_key)         // size win_wx*dim_y*win_wz
 {
     const std::uint32_t stride = blockDim.x * gridDim.x;
     std::uint32_t tri_idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -485,9 +492,16 @@ __global__ void disambiguation_kernel(
         const int y_hi = idx_clamp(tmax_y, origin_y, vs, dim_y);
         const int z_hi = idx_clamp(tmax_z, origin_z, vs, dim_z);
 
+        // Iterate the triangle's voxel-space AABB, restricted to the
+        // window in X/Z (identical intersection to the CPU window core;
+        // window cells see the exact same floats as the full-grid loop).
+        const int x_first = max(x_lo, win_x0);
+        const int x_last  = min(x_hi, win_x0 + win_wx - 1);
+        const int z_first = max(z_lo, win_z0);
+        const int z_last  = min(z_hi, win_z0 + win_wz - 1);
         for (int y = y_lo; y <= y_hi; ++y) {
-            for (int z = z_lo; z <= z_hi; ++z) {
-                for (int x = x_lo; x <= x_hi; ++x) {
+            for (int z = z_first; z <= z_last; ++z) {
+                for (int x = x_first; x <= x_last; ++x) {
                     const float3 box_centre = make_float3(
                         origin_x + (static_cast<float>(x) + 0.5f) * vs,
                         origin_y + (static_cast<float>(y) + 0.5f) * vs,
@@ -515,13 +529,16 @@ __global__ void disambiguation_kernel(
                         (static_cast<unsigned long long>(dist_bits) << 32)
                         | static_cast<unsigned long long>(tri_idx);
 
-                    // Storage order: linear = x + dim_x * (z + dim_z * y),
-                    // matching CPU's cell_index() in src/voxel.cpp.
+                    // Storage order: window-local linear =
+                    // (x - win_x0) + win_wx * ((z - win_z0) + win_wz * y),
+                    // matching the CPU window core in src/voxel.cpp. For
+                    // the full window this reduces to the pre-58
+                    // x + dim_x * (z + dim_z * y) exactly.
                     const std::size_t voxel_idx =
-                        static_cast<std::size_t>(x) +
-                        static_cast<std::size_t>(dim_x) *
-                          (static_cast<std::size_t>(z) +
-                           static_cast<std::size_t>(dim_z) *
+                        static_cast<std::size_t>(x - win_x0) +
+                        static_cast<std::size_t>(win_wx) *
+                          (static_cast<std::size_t>(z - win_z0) +
+                           static_cast<std::size_t>(win_wz) *
                              static_cast<std::size_t>(y));
 
                     atomicMin(&best_key[voxel_idx], key);
@@ -546,6 +563,7 @@ __global__ void postprocess_kernel(
     const unsigned long long* best_key,
     std::size_t               n_voxels,
     const std::int32_t*       tri_material,
+    const std::int32_t*       tri_global,   // local subset idx -> global face idx (Session 58; identity for the full path)
     std::int32_t*             cells,
     std::int32_t*             tris)
 {
@@ -567,7 +585,7 @@ __global__ void postprocess_kernel(
             const std::uint32_t tri_idx =
                 static_cast<std::uint32_t>(k & 0xFFFFFFFFULL);
             cells[i] = tri_material[tri_idx];
-            tris[i]  = static_cast<std::int32_t>(tri_idx);
+            tris[i]  = tri_global[tri_idx];
         }
         i += stride;
     }
@@ -576,13 +594,36 @@ __global__ void postprocess_kernel(
 }  // anonymous namespace
 
 // ===========================================================================
-// fill_cells_gpu — host adapter. Byte-identical semantics to fill_cells_cpu
-// per src/voxel.cpp for the same input; see the file header for the design.
+// fill_cells_gpu — full-grid host adapter. Byte-identical semantics to
+// fill_cells_cpu per src/voxel.cpp for the same input; see the file header
+// for the design. Since Session 58 this delegates to the windowed core
+// with the full window + all faces (local tri index == global face index,
+// so the packed keys — and therefore every output byte — are unchanged).
 // ===========================================================================
 void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
                     std::vector<std::int32_t>& cells,
                     std::vector<std::int32_t>& tris)
+{
+    fill_cells_gpu_window(mesh_in, setup,
+                          /*window_x0=*/0, /*window_z0=*/0,
+                          /*window_wx=*/setup.dims[0],
+                          /*window_wz=*/setup.dims[2],
+                          std::span<const std::int32_t>(), cells, tris);
+}
+
+// ===========================================================================
+// fill_cells_gpu_window — windowed host adapter (Session 58, v0.4 §6.4).
+// See voxel_internal.hpp for the contract and the local-vs-global tri
+// index byte-equality argument.
+// ===========================================================================
+void fill_cells_gpu_window(const ::objtomc::mesh::Mesh& mesh_in,
+                           const GridSetup& setup,
+                           const int window_x0, const int window_z0,
+                           const int window_wx, const int window_wz,
+                           std::span<const std::int32_t> faces,
+                           std::vector<std::int32_t>& cells,
+                           std::vector<std::int32_t>& tris)
 {
     // 0. Verify at least one CUDA device is visible. Prompt-required
     // (opts.prefer_gpu == ON must throw when no device is present per
@@ -596,20 +637,29 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
         }
     }
 
-    const std::size_t n_tris = mesh_in.faces.size();
+    const bool all_faces = faces.empty();
+    const std::size_t n_tris =
+        all_faces ? mesh_in.faces.size() : faces.size();
     const std::size_t n_voxels =
-        static_cast<std::size_t>(setup.dims[0]) *
+        static_cast<std::size_t>(window_wx) *
         static_cast<std::size_t>(setup.dims[1]) *
-        static_cast<std::size_t>(setup.dims[2]);
+        static_cast<std::size_t>(window_wz);
 
-    // 1. Flatten mesh triangles into a 9-floats-per-triangle SoA array,
-    // applying the axis swap once at flatten time so the disambiguation
-    // kernel does not need per-vertex swap logic (which would risk operand-
-    // order divergence vs CPU's apply_axis_swap).
+    // 1. Flatten the (subset of) mesh triangles into a 9-floats-per-
+    // triangle SoA array, applying the axis swap once at flatten time so
+    // the disambiguation kernel does not need per-vertex swap logic
+    // (which would risk operand-order divergence vs CPU's
+    // apply_axis_swap). Subset flattening preserves ascending global
+    // face order, so the packed key's LOCAL index tie-break picks the
+    // same winner as global indices (monotone reindexing); h_tri_global
+    // maps the winner back for the tris output.
     std::vector<float> h_tris(n_tris * 9);
     std::vector<std::int32_t> h_material(n_tris);
+    std::vector<std::int32_t> h_tri_global(n_tris);
     for (std::size_t i = 0; i < n_tris; ++i) {
-        const auto& face = mesh_in.faces[i];
+        const std::size_t gi =
+            all_faces ? i : static_cast<std::size_t>(faces[i]);
+        const auto& face = mesh_in.faces[gi];
         const auto& p0 = mesh_in.positions[face.position_indices[0]];
         const auto& p1 = mesh_in.positions[face.position_indices[1]];
         const auto& p2 = mesh_in.positions[face.position_indices[2]];
@@ -624,39 +674,38 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
         h_material[i] = (face.material_id < 0)
             ? std::int32_t{0}
             : face.material_id;
+        h_tri_global[i] = static_cast<std::int32_t>(gi);
     }
 
     // 2. Allocate device buffers (RAII; freed on any exception).
     DevBuf<float>              d_tris(n_tris * 9);
     DevBuf<std::int32_t>       d_material(n_tris);
+    DevBuf<std::int32_t>       d_tri_global(n_tris);
     DevBuf<unsigned long long> d_best_key(n_voxels);
     DevBuf<std::int32_t>       d_cells(n_voxels);
     DevBuf<std::int32_t>       d_win_tri(n_voxels);
-    // cuda_voxelizer's bitmap: ceil(n_voxels / 32) uint32 words.
-    const std::size_t bitmap_words = (n_voxels + 31u) / 32u;
-    DevBuf<unsigned int>       d_bitmap(bitmap_words);
 
-    // 3. Host → device copies + bitmap zero.
+    // 3. Host → device copies.
     OBJTOMC_CUDA_CHECK(cudaMemcpy(d_tris.data(), h_tris.data(),
                                   n_tris * 9 * sizeof(float),
                                   cudaMemcpyHostToDevice));
     OBJTOMC_CUDA_CHECK(cudaMemcpy(d_material.data(), h_material.data(),
                                   n_tris * sizeof(std::int32_t),
                                   cudaMemcpyHostToDevice));
-    OBJTOMC_CUDA_CHECK(cudaMemset(d_bitmap.data(), 0,
-                                  bitmap_words * sizeof(unsigned int)));
+    OBJTOMC_CUDA_CHECK(cudaMemcpy(d_tri_global.data(), h_tri_global.data(),
+                                  n_tris * sizeof(std::int32_t),
+                                  cudaMemcpyHostToDevice));
 
-    // 4. Launch vendored voxelize kernel (fills bitmap; retained per
-    // Session 40 maintainer choice as "cheap early-out at most" scaffolding
-    // but NOT consulted by the disambiguation kernel this session —
-    // byte-equality safety trumps the modest perf gain from an early-out
-    // whose superset relationship to SAT is unverified).
-    //
-    // cuda_voxelizer's voxinfo bbox is min/max of the mesh; unit is
-    // (bbox.max - bbox.min) / gridsize per axis, which we set to
-    // voxel_size on all axes by choosing bbox.max = origin + dims * vs.
-    // This matches CPU's origin frame exactly.
-    {
+    // 4. Vendored voxelize kernel (fills an occupancy bitmap that is NOT
+    // consulted — retained on the FULL-grid path only, per the Session 40
+    // maintainer choice as "cheap early-out at most" scaffolding). Windowed
+    // tile calls skip it: its voxinfo is full-frame/all-triangles shaped,
+    // and its output has never influenced cells/tris.
+    if (all_faces) {
+        const std::size_t bitmap_words = (n_voxels + 31u) / 32u;
+        DevBuf<unsigned int> d_bitmap(bitmap_words);
+        OBJTOMC_CUDA_CHECK(cudaMemset(d_bitmap.data(), 0,
+                                      bitmap_words * sizeof(unsigned int)));
         voxinfo vinfo(
             AABox<float3>(
                 make_float3(setup.origin[0], setup.origin[1], setup.origin[2]),
@@ -674,13 +723,13 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
         // morton_code=false so the vendored kernel writes a plain linear
         // bitmap (Morton would need separate LUT setup + inverse mapping
         // in our disambiguation kernel; not worth the complexity given we
-        // do not read the bitmap this session).
+        // do not read the bitmap).
         voxelize(vinfo, d_tris.data(), d_bitmap.data(), false);
+        // voxelize() calls cudaDeviceSynchronize internally on its return
+        // path (vendored — see voxelize.cu line 218). Still check for any
+        // deferred error from the kernel launch.
+        OBJTOMC_CUDA_CHECK(cudaGetLastError());
     }
-    // voxelize() calls cudaDeviceSynchronize internally on its return
-    // path (vendored — see voxelize.cu line 218). Still check for any
-    // deferred error from the kernel launch.
-    OBJTOMC_CUDA_CHECK(cudaGetLastError());
 
     // 5. Init best_key with ULLONG_MAX.
     {
@@ -706,6 +755,7 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
             d_tris.data(),
             static_cast<std::uint32_t>(n_tris),
             setup.dims[0], setup.dims[1], setup.dims[2],
+            window_x0, window_z0, window_wx, window_wz,
             setup.origin[0], setup.origin[1], setup.origin[2],
             setup.voxel_size,
             d_best_key.data());
@@ -722,7 +772,8 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
             n_blocks_full, static_cast<std::size_t>(65535)));
         postprocess_kernel<<<kGrid, kBlock>>>(
             d_best_key.data(), n_voxels,
-            d_material.data(), d_cells.data(), d_win_tri.data());
+            d_material.data(), d_tri_global.data(),
+            d_cells.data(), d_win_tri.data());
         OBJTOMC_CUDA_CHECK(cudaGetLastError());
     }
 

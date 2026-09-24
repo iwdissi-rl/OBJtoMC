@@ -89,6 +89,12 @@ void fill_cells_cpu_window(const ::objtomc::mesh::Mesh& mesh_in,
                            std::vector<std::int32_t>& tris);
 
 #ifdef OBJTOMC_WITH_CUDA
+// Grid-cell threshold above which AUTO dispatches to GPU (voxelize_mesh
+// and — Session 58 — tiling::voxelize_tile share this so the whole-grid
+// and per-tile dispatch decisions cannot drift). 64^3 is calibrated
+// against kernel launch overhead; see research/gpu_port_proposal.md §3.4.
+inline constexpr std::int64_t GPU_GRID_THRESHOLD_CELLS = 64LL * 64LL * 64LL;
+
 // GPU cell-filling: same semantics as fill_cells_cpu — byte-identical
 // cells AND tris output on the same input. (The GPU path's packed
 // atomicMin key already carries the winning triangle index in its low
@@ -102,6 +108,24 @@ void fill_cells_gpu(const ::objtomc::mesh::Mesh& mesh_in,
                     const GridSetup& setup,
                     std::vector<std::int32_t>& cells,
                     std::vector<std::int32_t>& tris);
+
+// Windowed GPU cell-filling (Session 58, v0.4 tiling — proposal §6.4).
+// Same window/faces/storage contract as fill_cells_cpu_window, same
+// byte-equality argument: every float expression uses the GLOBAL origin
+// and GLOBAL cell indices; the window only restricts visits and remaps
+// storage. The packed key's low 32 bits hold the LOCAL subset index —
+// subset flattening preserves ascending global order, so the u64 min
+// picks the same winner as global-index keys restricted to the subset;
+// postprocess maps local → global via a lookup array before writing
+// tris. fill_cells_gpu above is this function with the full window +
+// all faces (where local == global, byte-identical to pre-58 output).
+void fill_cells_gpu_window(const ::objtomc::mesh::Mesh& mesh_in,
+                           const GridSetup& setup,
+                           int window_x0, int window_z0,
+                           int window_wx, int window_wz,
+                           std::span<const std::int32_t> faces,
+                           std::vector<std::int32_t>& cells,
+                           std::vector<std::int32_t>& tris);
 #endif  // OBJTOMC_WITH_CUDA
 
 // ---------------------------------------------------------------------------

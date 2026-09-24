@@ -30,9 +30,9 @@
 //      the same (distance, face_idx) lexicographic winner as the full loop
 //      restricted to that cell.
 //
-// v0.4 sequencing: this session (proposal §6.2) is the CPU driver;
-// orchestrate consumption (region-at-a-time write) is §6.3; GPU per-tile
-// dispatch is §6.4 — voxelize_tile currently always fills on CPU.
+// v0.4 sequencing: §6.2 CPU driver (Session 56); §6.3 orchestrate
+// consumption with region-at-a-time write (Session 57); §6.4 GPU
+// per-tile dispatch (Session 58).
 // ---------------------------------------------------------------------------
 namespace objtomc::tiling {
 
@@ -92,8 +92,9 @@ TilePlan plan_tiles_aligned(const mesh::Mesh& mesh,
                             int block_span);
 
 // Voxelise one tile of the plan. faces must be the plan's face list for
-// this tile (ascending global indices). CPU fill path (GPU dispatch is
-// proposal §6.4).
+// this tile (ascending global indices). CPU/GPU dispatch follows
+// voxelize_mesh's rules against the TILE's cell count (Session 58);
+// both paths byte-identical.
 TileResult voxelize_tile(const mesh::Mesh& mesh,
                          const voxel::VoxelizerOptions& opts,
                          const Tile& tile,

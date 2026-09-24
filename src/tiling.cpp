@@ -238,9 +238,34 @@ TileResult voxelize_tile(const mesh::Mesh& mesh,
     // An empty face list means the tile is genuinely empty — do NOT pass
     // the empty span to the kernel, where it is the "all faces" sentinel.
     if (!faces.empty()) {
-        voxel::detail::fill_cells_cpu_window(
-            mesh, setup, tile.offset_xz[0], tile.offset_xz[1],
-            tile.dims_xz[0], tile.dims_xz[1], faces, res.cells, res.tris);
+        // CPU/GPU dispatch (Session 58) — same rules as voxelize_mesh:
+        // ON always GPU; AUTO GPU when the TILE's cell count reaches the
+        // shared threshold; OFF (and CPU-only builds) CPU. Both paths are
+        // byte-identical (voxel_tiled_equality GPU section + the packed-
+        // key/local-index argument in voxel_internal.hpp).
+        bool use_gpu = false;
+#ifdef OBJTOMC_WITH_CUDA
+        const std::int64_t tile_cells =
+            static_cast<std::int64_t>(res.dims[0]) *
+            static_cast<std::int64_t>(res.dims[1]) *
+            static_cast<std::int64_t>(res.dims[2]);
+        if (opts.prefer_gpu == GpuPreference::ON) {
+            use_gpu = true;
+        } else if (opts.prefer_gpu == GpuPreference::AUTO &&
+                   tile_cells >= voxel::detail::GPU_GRID_THRESHOLD_CELLS) {
+            use_gpu = true;
+        }
+        if (use_gpu) {
+            voxel::detail::fill_cells_gpu_window(
+                mesh, setup, tile.offset_xz[0], tile.offset_xz[1],
+                tile.dims_xz[0], tile.dims_xz[1], faces, res.cells, res.tris);
+        }
+#endif
+        if (!use_gpu) {
+            voxel::detail::fill_cells_cpu_window(
+                mesh, setup, tile.offset_xz[0], tile.offset_xz[1],
+                tile.dims_xz[0], tile.dims_xz[1], faces, res.cells, res.tris);
+        }
     }
     return res;
 }

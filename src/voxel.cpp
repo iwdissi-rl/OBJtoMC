@@ -815,11 +815,10 @@ void fill_cells_cpu_window(const mesh::Mesh& mesh_in,
 //       grids).
 // ---------------------------------------------------------------------------
 #ifdef OBJTOMC_WITH_CUDA
-// Grid-cell threshold above which AUTO dispatches to GPU. 64^3 = 262 144
-// is calibrated against cuda_voxelizer's launch overhead (~1-5 ms per
-// launch) vs the CPU cost of a 64^3 mesh AABB scan (~50 ms for a
-// typical fixture). See proposal §3.4.
-static constexpr std::int64_t GPU_GRID_THRESHOLD = 64LL * 64LL * 64LL;
+// AUTO dispatch threshold — shared with tiling::voxelize_tile via
+// voxel_internal.hpp (Session 58). See that header's comment.
+static constexpr std::int64_t GPU_GRID_THRESHOLD =
+    detail::GPU_GRID_THRESHOLD_CELLS;
 #endif
 
 VoxelGrid voxelize_mesh(const mesh::Mesh& mesh_in,
