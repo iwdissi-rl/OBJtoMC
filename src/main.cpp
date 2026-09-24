@@ -76,6 +76,10 @@ void print_help(std::ostream& os, const char* argv0) {
         "                                  tile per region only when the grid\n"
         "                                  exceeds --max-grid-cells; byte-identical\n"
         "                                  to monolithic output either way).\n"
+        "  --align {off,auto,<degrees>}    Pre-rotate the mesh about Y so the\n"
+        "                                  dominant facade direction lands axis-\n"
+        "                                  aligned (kills stair-stepping). auto\n"
+        "                                  detects the angle. Default off.\n"
         "  --cleanup {on,off}              Deterministic scan cleanup (pinhole\n"
         "                                  fill + floating-crumb removal) before\n"
         "                                  matching. Default off. Works with\n"
@@ -223,6 +227,30 @@ ParsedCli parse_cli(int argc, char** argv) {
             } else {
                 throw usage_error(std::string("--tiling: '") + std::string(v) +
                                   "' is not one of {auto, on, off}");
+            }
+        } else if (a == "--align") {
+            const auto v = next_arg(i, "align");
+            if (v == "off") {
+                cli.opts.align_auto = false;
+                cli.opts.align_degrees.reset();
+            } else if (v == "auto") {
+                cli.opts.align_auto = true;
+            } else {
+                try {
+                    std::size_t pos = 0;
+                    const std::string s{v};
+                    cli.opts.align_degrees = std::stof(s, &pos);
+                    if (pos != s.size()) {
+                        throw usage_error("--align: '" + s +
+                                          "' is not one of {off, auto, <degrees>}");
+                    }
+                } catch (const std::invalid_argument&) {
+                    throw usage_error(std::string("--align: '") + std::string(v) +
+                                      "' is not one of {off, auto, <degrees>}");
+                } catch (const std::out_of_range&) {
+                    throw usage_error(std::string("--align: '") + std::string(v) +
+                                      "' is out of float range");
+                }
             }
         } else if (a == "--cleanup") {
             const auto v = next_arg(i, "cleanup");

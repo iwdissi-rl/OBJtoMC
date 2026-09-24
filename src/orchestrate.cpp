@@ -46,6 +46,7 @@
 
 #include <zlib.h>
 
+#include "objtomc/alignment.hpp"
 #include "objtomc/anvil.hpp"
 #include "objtomc/chunk.hpp"
 #include "objtomc/matcher.hpp"
@@ -77,6 +78,8 @@ OrchestrateOptions default_options() noexcept {
     o.tiling                  = OrchestrateOptions::TilingMode::AUTO;
     o.world_height            = std::nullopt;  // AUTO — extend only when needed
     o.cleanup                 = cleanup::CleanupOptions{};  // off
+    o.align_auto              = false;
+    o.align_degrees           = std::nullopt;
     o.matcher_opts            = matcher::default_options();
     o.palette_csv             = std::nullopt;
     o.level_name              = "objtomc world";
@@ -776,11 +779,26 @@ void orchestrate(const std::filesystem::path& obj_path,
     const bool is_gltf = (ext == ".gltf" || ext == ".glb");
     log("[mesh]    loading " + obj_path.string() +
         (is_gltf ? " (glTF)" : " (OBJ)"));
-    const mesh::Mesh m =
+    mesh::Mesh m =
         is_gltf ? gltf::load_gltf(obj_path) : mesh::load_obj(obj_path);
     log("[mesh]    loaded " + std::to_string(m.positions.size()) + " positions, " +
         std::to_string(m.faces.size()) + " faces, " +
         std::to_string(m.materials.size()) + " materials");
+
+    // ---- 1b. Street-grid alignment (Session 69, v0.5 (b)) ----
+    if (opts.align_auto && opts.align_degrees.has_value()) {
+        throw orchestrate_error(
+            "align_auto and align_degrees are mutually exclusive");
+    }
+    if (opts.align_auto || opts.align_degrees.has_value()) {
+        const float ang = opts.align_degrees.has_value()
+            ? *opts.align_degrees
+            : alignment::detect_grid_angle(m);
+        log("[align]   rotating mesh by " + std::to_string(ang) +
+            " deg about Y" +
+            (opts.align_auto ? " (auto-detected grid angle)" : ""));
+        alignment::rotate_mesh_y(m, ang);
+    }
 
     // ---- 2. Voxelise ----
     // target_size (Session 50): derive voxel_size from the loaded mesh so

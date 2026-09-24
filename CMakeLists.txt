@@ -296,6 +296,11 @@ target_link_libraries(voxel PUBLIC mesh)
 add_library(cleanup STATIC src/cleanup.cpp)
 target_include_directories(cleanup PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
+# Street-grid auto-alignment — v0.5 sub-item (b), Session 69.
+add_library(alignment STATIC src/alignment.cpp)
+target_include_directories(alignment PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(alignment PUBLIC mesh)
+
 add_library(tiling STATIC src/tiling.cpp)
 target_include_directories(tiling PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(tiling PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -350,7 +355,7 @@ add_library(orchestrate STATIC src/orchestrate.cpp)
 target_include_directories(orchestrate PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(orchestrate
     PUBLIC  nbt anvil chunk mesh palette matcher voxel
-    PRIVATE gltf texture tiling cleanup ZLIB::ZLIB)
+    PRIVATE gltf texture tiling cleanup alignment ZLIB::ZLIB)
 
 # ---------------------------------------------------------------------------
 # objtomc — the CLI binary. Hand-rolled argv parser per proposal §1.5(b);

@@ -80,6 +80,16 @@ struct OrchestrateOptions {
     // orchestrate_cleanup_tiled_equality).
     cleanup::CleanupOptions                  cleanup;
 
+    // ----- Street-grid auto-alignment (Session 69, v0.5 sub-item (b)) -------
+    // Pre-rotation about Y (through the mesh AABB centre) before
+    // voxelisation, so dominant facades land axis-aligned instead of
+    // stair-stepped. align_auto detects the angle (alignment::
+    // detect_grid_angle); align_degrees pins it explicitly. Setting both
+    // throws orchestrate_error. Default: neither (no rotation, byte-
+    // identical pipeline).
+    bool                                     align_auto;            // default false
+    std::optional<float>                     align_degrees;         // default nullopt
+
     // ----- Matcher (forwarded verbatim) -----------------------------------
     matcher::MatcherOptions                  matcher_opts;
 
