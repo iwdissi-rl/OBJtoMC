@@ -181,3 +181,4 @@ voxels/
 studio/uploads/
 studio/worlds/
 studio/__pycache__/
+studio/video_assets/out/
