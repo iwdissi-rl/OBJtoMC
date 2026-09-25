@@ -178,3 +178,6 @@ palette_cache/
 
 voxels/
 *.bin
+studio/uploads/
+studio/worlds/
+studio/__pycache__/
