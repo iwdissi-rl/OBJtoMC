@@ -30,7 +30,9 @@ WORLDS.mkdir(exist_ok=True)
 
 app = Flask(__name__, static_folder=str(ROOT / "static"), static_url_path="")
 
-jobs = {}          # id -> dict(status, lines, world, name, stats)
+jobs = {}          # id -> dict(status, lines, world, name, stats, model)
+ORACLE_PY  = ROOT.parent / "tests" / "oracle_venv" / "bin" / "python"
+PALETTE_CSV = ROOT.parent / "data" / "block_palette_db.csv"
 jobs_lock = threading.Lock()
 job_seq = [0]
 
@@ -70,6 +72,7 @@ def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
         cmd += ["--align", "auto"]
     cmd += [str(model), str(out)]
     j["lines"].put(f"$ {' '.join(cmd)}")
+    j["log_all"].append(f"$ {' '.join(cmd)}")
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
@@ -77,6 +80,7 @@ def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
         for line in proc.stdout:
             line = line.rstrip("\n")
             j["lines"].put(line)
+            j["log_all"].append(line)
             m = re.search(r"occupied = (\d+)", line)
             if m:
                 j["stats"]["voxels"] = int(m.group(1))
@@ -92,9 +96,11 @@ def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
             j["stats"]["regions"] = regions
             j["status"] = "done"
             j["lines"].put(f":: FORGE COMPLETE — {regions} region file(s)")
+            j["log_all"].append(f":: FORGE COMPLETE — {regions} region file(s)")
         else:
             j["status"] = "failed"
             j["lines"].put(f":: FAILED (exit {proc.returncode})")
+            j["log_all"].append(f":: FAILED (exit {proc.returncode})")
     except Exception as e:                                  # noqa: BLE001
         j["status"] = "failed"
         j["lines"].put(f":: ERROR {e}")
@@ -137,7 +143,8 @@ def convert():
         jid = str(job_seq[0])
         jobs[jid] = {"status": "running", "lines": queue.Queue(),
                      "world": None, "name": name, "size": size,
-                     "stats": {}, "started": time.strftime("%H:%M:%S")}
+                     "stats": {}, "started": time.strftime("%H:%M:%S"),
+                     "model": str(model), "cache": {}, "log_all": []}
     threading.Thread(target=run_job,
                      args=(jid, model, name, size, cleanup, align),
                      daemon=True).start()
@@ -170,6 +177,84 @@ def list_jobs():
                     "started": j["started"],
                     "installed": (SAVES / j["name"]).exists()})
     return jsonify(out)
+
+
+@app.post("/api/debugshot")
+def debugshot():
+    import base64
+    t = re.sub(r"[^0-9a-z]", "", request.args.get("t", "0"))
+    data = request.get_data(as_text=True)
+    if data.startswith("data:image/png;base64,"):
+        (ROOT / f"debug_shot_{t}.png").write_bytes(
+            base64.b64decode(data.split(",", 1)[1]))
+    return jsonify(ok=True)
+
+
+@app.post("/api/debuglog")
+def debuglog():
+    with open(ROOT / "debug_js.log", "a") as f:
+        f.write(request.get_data(as_text=True) + "\n")
+    return jsonify(ok=True)
+
+
+@app.get("/api/loglines/<jid>")
+def loglines(jid):
+    j = jobs.get(jid)
+    if not j:
+        return jsonify(error="no such job"), 404
+    return jsonify(lines=j["log_all"], status=j["status"],
+                   name=j["name"], size=j["size"], stats=j["stats"])
+
+
+@app.get("/api/palette")
+def palette():
+    out = []
+    for line in PALETTE_CSV.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        f = line.split(",")
+        out.append([f[0].removeprefix("minecraft:"),
+                    int(f[3]), int(f[4]), int(f[5]),
+                    int(f[1]), int(f[2]), f[8] == "true"])
+    return jsonify(out)
+
+
+def _cached_sampler(jid, key, cmd):
+    j = jobs.get(jid)
+    if not j:
+        return jsonify(error="no such job"), 404
+    if key not in j["cache"]:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=600)
+            if r.returncode != 0:
+                return jsonify(error=r.stderr[-400:]), 500
+            j["cache"][key] = r.stdout
+        except Exception as e:                              # noqa: BLE001
+            return jsonify(error=str(e)), 500
+    return Response(j["cache"][key], mimetype="application/json")
+
+
+@app.get("/api/mesh/<jid>")
+def mesh_points(jid):
+    j = jobs.get(jid)
+    if not j:
+        return jsonify(error="no such job"), 404
+    return _cached_sampler(jid, "mesh",
+                           ["python3.12", str(ROOT / "mesh_sampler.py"),
+                            j["model"]])
+
+
+@app.get("/api/voxels/<jid>")
+def voxels(jid):
+    j = jobs.get(jid)
+    if not j:
+        return jsonify(error="no such job"), 404
+    if j["status"] != "done":
+        return jsonify(error="not done"), 400
+    return _cached_sampler(jid, "voxels",
+                           [str(ORACLE_PY), str(ROOT / "world_sampler.py"),
+                            j["world"], str(PALETTE_CSV)])
 
 
 @app.post("/api/install/<jid>")

@@ -100,6 +100,53 @@ tr:hover td{background:rgba(56,200,255,.04)}
 .btn[disabled]{opacity:.35; cursor:default; box-shadow:none}
 .hint{color:var(--dim); font-size:11.5px; margin-top:10px}
 .file-name{color:var(--acc2); margin-top:10px; font-size:12.5px; min-height:18px}
+
+/* ---------- showcase ---------- */
+#stage{position:fixed; inset:0; background:#04060a; z-index:50; display:none}
+#stage.on{display:block}
+#sc-gl{position:absolute; inset:0; width:100%; height:100%}
+#sc-hud{position:absolute; top:0; left:0; right:0; padding:18px 26px; display:flex;
+  justify-content:space-between; align-items:flex-start; pointer-events:none}
+#sc-title{font-size:22px; letter-spacing:6px; color:var(--acc); text-shadow:var(--glow)}
+#sc-phases{display:flex; flex-direction:column; gap:5px; width:250px}
+.sc-ph{display:flex; align-items:center; gap:8px; font-size:10px; letter-spacing:2px; color:#33473d}
+.sc-ph.on{color:var(--acc)} .sc-ph.past{color:#1e6b4c}
+.sc-ph .k{width:120px; text-align:right}
+.sc-ph .bar{flex:1; height:3px; background:#0d1a14; border-radius:2px; overflow:hidden}
+.sc-ph .bar span{display:block; height:100%; width:0; background:var(--acc); box-shadow:var(--glow)}
+.sc-ph.past .bar span{width:100%!important; background:#1e6b4c; box-shadow:none}
+#sc-ticker{position:absolute; left:26px; bottom:22px; font-size:12px; color:#79e6b4;
+  text-shadow:0 0 6px rgba(0,255,156,.3); pointer-events:none; line-height:1.6}
+#sc-counters{position:absolute; right:26px; bottom:22px; text-align:right; font-size:11px;
+  color:var(--dim); pointer-events:none; line-height:1.7}
+#sc-counters b{color:var(--acc2); font-size:14px}
+#sc-skip{position:absolute; top:16px; right:50%; transform:translateX(50%);
+  background:none; border:1px solid var(--line); color:var(--dim); font:inherit;
+  font-size:10px; letter-spacing:3px; padding:5px 14px; border-radius:4px; cursor:pointer}
+#sc-skip:hover{color:var(--txt); border-color:#2c4457}
+.sc-pop{position:absolute; width:340px; height:220px; background:rgba(7,12,16,.92);
+  border:1px solid var(--line); border-radius:6px; display:none; pointer-events:none}
+.sc-pop.on{display:block}
+.sc-pop canvas{width:100%; height:100%}
+#sc-diag{left:26px; top:110px}
+#sc-pal{left:26px; top:110px; width:380px; height:300px}
+#sc-reg{right:26px; top:110px}
+#sc-final{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+  flex-direction:column; pointer-events:none}
+#sc-final.on{display:flex}
+#sc-final .big{font-size:44px; letter-spacing:14px; color:var(--acc); text-shadow:var(--glow);
+  animation:pulse 2.4s infinite}
+#sc-final .sub{margin-top:10px; color:var(--acc2); letter-spacing:2px}
+#sc-install{position:absolute; bottom:70px; left:50%; transform:translateX(-50%);
+  display:none; pointer-events:auto; padding:10px 34px; font:inherit; letter-spacing:4px;
+  color:#04140c; font-weight:700; background:linear-gradient(180deg,#00ff9c,#00c97b);
+  border:0; border-radius:6px; box-shadow:var(--glow); cursor:pointer}
+#sc-install.on{display:block}
+.switch{display:flex; align-items:center; gap:8px; color:var(--dim); font-size:12px; cursor:pointer}
+.switch input{accent-color:var(--acc)}
+select{background:#06080a; color:var(--txt); border:1px solid var(--line); border-radius:4px;
+  padding:6px 8px; font:inherit; font-size:12px}
+
 </style>
 </head>
 <body>
@@ -140,6 +187,15 @@ tr:hover td{background:rgba(56,200,255,.04)}
         <div class="row">
           <input type="text" id="wname" placeholder="world name (auto from file if empty)">
         </div>
+        <div class="row" style="margin-top:14px; gap:14px">
+          <label class="switch"><input type="checkbox" id="showcase" checked> SHOWCASE MODE</label>
+          <select id="scdur">
+            <option value="60">1 min</option>
+            <option value="120">2 min</option>
+            <option value="180" selected>3 min</option>
+            <option value="300">5 min</option>
+          </select>
+        </div>
         <button class="forge" id="go">▶ FORGE WORLD</button>
         <div class="hint">tall models auto-extend the height limit via an embedded datapack ·
         huge models stream region-by-region · output stays 100% vanilla-loadable</div>
@@ -167,6 +223,28 @@ drop a model and hit FORGE.</div>
   </div>
 </div>
 
+
+<div id="stage">
+  <canvas id="sc-gl"></canvas>
+  <div id="sc-hud">
+    <div id="sc-title">INIT</div>
+    <div id="sc-phases"></div>
+  </div>
+  <button id="sc-skip">SKIP ▸▸</button>
+  <div class="sc-pop" id="sc-diag"><canvas id="sc-diag-cv"></canvas></div>
+  <div class="sc-pop" id="sc-pal"><canvas id="sc-pal-cv"></canvas></div>
+  <div class="sc-pop" id="sc-reg"><canvas id="sc-reg-cv"></canvas></div>
+  <div id="sc-ticker"></div>
+  <div id="sc-counters">
+    vertices <b id="sc-n1">0</b><br>
+    voxels <b id="sc-n2">0</b><br>
+    pinholes sealed <b id="sc-n3">0</b>
+  </div>
+  <div id="sc-final"></div>
+  <button id="sc-install">INSTALL TO MINECRAFT</button>
+</div>
+<script src="/vendor/three.min.js"></script>
+<script src="/showcase.js"></script>
 <script>
 const $=s=>document.querySelector(s);
 const term=$('#term'), rows=$('#rows');
@@ -206,7 +284,8 @@ async function refresh(){
       <td>${j.stats.regions??'—'}${j.stats.extended?' <span style="color:var(--warn)">↑tall</span>':''}</td>
       <td class="st-${j.status}">${j.status.toUpperCase()}</td>
       <td>${j.status==='done'
-          ? `<button class="btn" onclick="install(${j.job})" ${j.installed?'disabled':''}>${j.installed?'INSTALLED ✓':'INSTALL'}</button>`
+          ? `<button class="btn" onclick="install(${j.job})" ${j.installed?'disabled':''}>${j.installed?'INSTALLED ✓':'INSTALL'}</button>
+             <button class="btn" onclick="currentJob=${j.job};SC.start('${j.job}',{duration:+document.querySelector('#scdur').value,live:false})">REPLAY ▶</button>`
           : ''}</td>`;
     rows.appendChild(tr);
   }
@@ -216,6 +295,11 @@ async function install(id){
   log(r.ok? ':: installed → '+r.installed : ':: install failed: '+r.error, r.ok?'ok':'err');
   refresh();
 }
+
+// shared live feed so the console AND the showcase both see every line
+window.jobFeed={subs:[],subscribe(f){this.subs.push(f)},emit(l){this.subs.forEach(f=>f(l))}};
+let currentJob=null;
+$('#sc-install').onclick=()=>{ if(currentJob) install(currentJob); $('#sc-install').textContent='INSTALLED ✓'; };
 
 $('#go').onclick=async()=>{
   const fd=new FormData();
@@ -230,10 +314,15 @@ $('#go').onclick=async()=>{
   if(r.error){log(':: '+r.error,'err'); $('#go').disabled=false; $('#jstat').textContent='idle'; return;}
   log('', null); log(':: job '+r.job+' — '+r.model,'sys');
   $('#jstat').textContent='running · job '+r.job;
+  currentJob=r.job;
   refresh();
+  window.jobFeed.subs=[];
+  if($('#showcase').checked)
+    SC.start(r.job,{duration:+$('#scdur').value,live:true});
   const es=new EventSource('/api/log/'+r.job);
   es.onmessage=e=>{
     const line=JSON.parse(e.data);
+    window.jobFeed.emit(line);
     log(line, line.startsWith('::')?'ok': line.startsWith('$')?'sys':
              /error|FAILED/i.test(line)?'err':null);
   };
@@ -245,6 +334,12 @@ $('#go').onclick=async()=>{
   });
 };
 refresh();
+const qp=new URLSearchParams(location.search);
+if(qp.get('shots')){window._shots=qp.get('shots').split(',').map(t=>({t:+t,done:false}));
+  window.onerror=(m,src,l,c)=>{fetch('/api/debuglog',{method:'POST',body:`JSERR ${m} @${src}:${l}:${c}`});};
+  window.onunhandledrejection=e=>{fetch('/api/debuglog',{method:'POST',body:'REJ '+(e.reason&&e.reason.stack||e.reason)});};}
+if(qp.get('replay')) setTimeout(()=>{currentJob=qp.get('replay');
+  SC.start(qp.get('replay'),{duration:+(qp.get('dur')||180),live:false});},600);
 </script>
 </body>
 </html>
