@@ -57,6 +57,35 @@ def find_model(path: Path):
     return None
 
 
+def _stream(j, cmd):
+    """Run `cmd`, stream stdout into the job feed. Returns exit code."""
+    j["lines"].put(f"$ {' '.join(cmd)}")
+    j["log_all"].append(f"$ {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, bufsize=1)
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        j["lines"].put(line)
+        j["log_all"].append(line)
+        m = re.search(r"occupied = (\d+)", line)
+        if m:
+            j["stats"]["voxels"] = int(m.group(1))
+        m = re.search(r"grid dims = (.+)", line)
+        if m:
+            j["stats"]["dims"] = m.group(1)
+        if "extended" in line and "height" in line:
+            j["stats"]["extended"] = True
+    proc.wait()
+    return proc.returncode
+
+
+def _fail(j, msg):
+    j["status"] = "failed"
+    j["lines"].put(msg)
+    j["log_all"].append(msg)
+    j["lines"].put(None)
+
+
 def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
             align: bool):
     j = jobs[jid]
@@ -71,26 +100,9 @@ def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
     if align:
         cmd += ["--align", "auto"]
     cmd += [str(model), str(out)]
-    j["lines"].put(f"$ {' '.join(cmd)}")
-    j["log_all"].append(f"$ {' '.join(cmd)}")
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True,
-                                bufsize=1)
-        for line in proc.stdout:
-            line = line.rstrip("\n")
-            j["lines"].put(line)
-            j["log_all"].append(line)
-            m = re.search(r"occupied = (\d+)", line)
-            if m:
-                j["stats"]["voxels"] = int(m.group(1))
-            m = re.search(r"grid dims = (.+)", line)
-            if m:
-                j["stats"]["dims"] = m.group(1)
-            if "extended world height" in line:
-                j["stats"]["extended"] = True
-        proc.wait()
-        if proc.returncode == 0 and (out / "level.dat").exists():
+        rc = _stream(j, cmd)
+        if rc == 0 and (out / "level.dat").exists():
             j["world"] = str(out)
             regions = len(list((out / "region").glob("*.mca")))
             j["stats"]["regions"] = regions
@@ -98,18 +110,134 @@ def run_job(jid, model: Path, name: str, size: int, cleanup: bool,
             j["lines"].put(f":: FORGE COMPLETE — {regions} region file(s)")
             j["log_all"].append(f":: FORGE COMPLETE — {regions} region file(s)")
         else:
-            j["status"] = "failed"
-            j["lines"].put(f":: FAILED (exit {proc.returncode})")
-            j["log_all"].append(f":: FAILED (exit {proc.returncode})")
+            return _fail(j, f":: FAILED (exit {rc})")
     except Exception as e:                                  # noqa: BLE001
-        j["status"] = "failed"
-        j["lines"].put(f":: ERROR {e}")
+        return _fail(j, f":: ERROR {e}")
     j["lines"].put(None)                                    # sentinel: stream end
+
+
+def run_import_job(jid, model: Path, name: str, size: int, cleanup: bool,
+                   align: bool, dst: Path, x: int, y: str, z: int,
+                   sink: int):
+    """Convert the model to a temp world, then merge it into `dst`."""
+    j = jobs[jid]
+    out = WORLDS / f"__import_{name}"
+    if out.exists():
+        shutil.rmtree(out)
+    cmd = [str(OBJTOMC), "--target-size", str(size), "--tiling", "auto",
+           "--world-origin", "0,-64,0", "--level-name", name, "--verbose"]
+    if cleanup:
+        cmd += ["--cleanup", "on"]
+    if align:
+        cmd += ["--align", "auto"]
+    cmd += [str(model), str(out)]
+    try:
+        rc = _stream(j, cmd)
+        if rc != 0 or not (out / "level.dat").exists():
+            return _fail(j, f":: FAILED (convert exit {rc})")
+        j["lines"].put(f":: convert done — merging into '{dst.name}' "
+                       f"at ({x},{y},{z}) ...")
+        j["log_all"].append(":: convert done — merging ...")
+        rc = _stream(j, [str(ORACLE_PY), str(ROOT / "world_merge.py"),
+                         str(out), str(dst), "--at", f"{x},{y},{z}",
+                         "--sink", str(sink)])
+        done = any("IMPORT COMPLETE" in ln for ln in j["log_all"][-5:])
+        if rc != 0 or not done:
+            return _fail(j, f":: FAILED (merge exit {rc}) — world backup "
+                            f"under {dst.name}/voxforge_backup_*")
+        j["status"] = "done"
+    except Exception as e:                                  # noqa: BLE001
+        return _fail(j, f":: ERROR {e}")
+    finally:
+        if out.exists():
+            shutil.rmtree(out, ignore_errors=True)
+    j["lines"].put(None)
 
 
 @app.get("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.get("/api/saves")
+def saves():
+    """Existing worlds in ~/.minecraft/saves that can be import targets."""
+    out = []
+    if SAVES.exists():
+        for d in sorted(SAVES.iterdir()):
+            if (d / "level.dat").exists() and (d / "region").exists():
+                mb = sum(f.stat().st_size
+                         for f in (d / "region").glob("*.mca")) // 2**20
+                out.append({"name": d.name, "mb": mb})
+    return jsonify(out)
+
+
+def _job_input(defaults_name=True):
+    """Shared upload/path/model resolution for convert + import."""
+    up = request.files.get("file")
+    if up and up.filename:
+        dest = UPLOADS / f"u{int(time.time())}_{Path(up.filename).name}"
+        up.save(dest)
+        src = dest
+    else:
+        p = request.form.get("path", "").strip()
+        if not p:
+            return None, (jsonify(error="no file or path given"), 400)
+        src = Path(p).expanduser()
+        if not src.exists():
+            return None, (jsonify(error=f"path not found: {src}"), 400)
+    model = find_model(src)
+    if model is None:
+        return None, (jsonify(error="no .glb/.gltf/.obj found in the input"),
+                      400)
+    return model, None
+
+
+@app.post("/api/import")
+def do_import():
+    """Convert a model and merge it into an existing save."""
+    name    = re.sub(r"[^A-Za-z0-9_ -]", "",
+                     request.form.get("name", "")).strip()
+    size    = max(16, min(16384, int(request.form.get("size", "256"))))
+    cleanup = request.form.get("cleanup", "1") == "1"
+    align   = request.form.get("align", "0") == "1"
+    sink    = max(0, min(256, int(request.form.get("sink", "0") or 0)))
+    dstname = request.form.get("dst", "").strip()
+    dst = SAVES / dstname
+    if not dstname or not (dst / "level.dat").exists():
+        return jsonify(error=f"target world not found: {dstname}"), 400
+    try:
+        x = int(request.form.get("x", "0") or 0)
+        z = int(request.form.get("z", "0") or 0)
+    except ValueError:
+        return jsonify(error="X/Z must be integers"), 400
+    y = request.form.get("y", "auto").strip() or "auto"
+    if y != "auto":
+        try:
+            int(y)
+        except ValueError:
+            return jsonify(error="Y must be an integer or 'auto'"), 400
+
+    model, err = _job_input()
+    if err:
+        return err
+    if not name:
+        name = model.stem if model.stem != "scene" else model.parent.name
+
+    with jobs_lock:
+        job_seq[0] += 1
+        jid = str(job_seq[0])
+        jobs[jid] = {"status": "running", "lines": queue.Queue(),
+                     "world": None, "name": name, "size": size,
+                     "stats": {}, "started": time.strftime("%H:%M:%S"),
+                     "model": str(model), "cache": {}, "log_all": [],
+                     "mode": "import", "dst": dstname,
+                     "at": f"{x},{y},{z}"}
+    threading.Thread(target=run_import_job,
+                     args=(jid, model, name, size, cleanup, align, dst,
+                           x, y, z, sink),
+                     daemon=True).start()
+    return jsonify(job=jid, name=name, model=str(model))
 
 
 @app.post("/api/convert")
@@ -175,6 +303,8 @@ def list_jobs():
         out.append({"job": jid, "name": j["name"], "status": j["status"],
                     "size": j["size"], "stats": j["stats"],
                     "started": j["started"],
+                    "mode": j.get("mode", "forge"),
+                    "dst": j.get("dst"), "at": j.get("at"),
                     "installed": (SAVES / j["name"]).exists()})
     return jsonify(out)
 

@@ -85,6 +85,18 @@ tr:hover td{background:var(--sel)}
 .btn:hover{background:#2e4f70}
 .btn[disabled]{opacity:.4; cursor:default}
 .hint{color:var(--dim); font-size:11px; margin-top:8px}
+.modes{display:flex; border:1px solid var(--line); margin-bottom:10px}
+.mtab{flex:1; text-align:center; padding:6px 4px; cursor:pointer; user-select:none;
+  color:var(--dim); font-size:12px; background:var(--well); border-right:1px solid var(--line)}
+.mtab:last-child{border-right:0}
+.mtab:hover{color:var(--txt); background:var(--sel)}
+.mtab.on{color:#fff; background:var(--accbg); font-weight:700}
+#importbox{display:none; border:1px solid var(--line2); background:var(--well);
+  padding:8px; margin-top:12px}
+#importbox.on{display:block}
+#importbox .lb{color:var(--dim); font-size:11px; width:64px; flex:none}
+#importbox input[type=text]{flex:1}
+#importbox .coord{width:70px!important; flex:none}
 .file-name{color:var(--acc); margin-top:8px; font-size:12px; min-height:16px}
 /* ---------- showcase (same blocky language) ---------- */
 #stage{position:fixed; inset:0; background:#0a0e13; z-index:50; display:none}
@@ -161,6 +173,10 @@ tr:hover td{background:var(--sel)}
     <div class="panel">
       <div class="hd"><span>[ PARAMETERS ]</span><span class="r">size = blocks, longest axis</span></div>
       <div class="bd">
+        <div class="modes">
+          <div class="mtab on" id="m-forge">FORGE NEW WORLD</div>
+          <div class="mtab" id="m-import">IMPORT INTO WORLD</div>
+        </div>
         <div class="sizes" id="sizes">
           <span class="chip" data-v="256">256</span>
           <span class="chip" data-v="512">512</span>
@@ -176,7 +192,24 @@ tr:hover td{background:var(--sel)}
         <div class="row">
           <input type="text" id="wname" placeholder="world name (auto from file if empty)">
         </div>
-        <div class="row" style="margin-top:14px; gap:14px">
+        <div id="importbox">
+          <div class="row" style="margin-top:0">
+            <span class="lb">world</span>
+            <select id="dst"><option value="">— pick a save —</option></select>
+          </div>
+          <div class="row">
+            <span class="lb">place at</span>
+            <input type="number" class="coord" id="ix" value="0" title="X">
+            <input type="text"   class="coord" id="iy" value="auto" title="Y — 'auto' = terrain surface">
+            <input type="number" class="coord" id="iz" value="0" title="Z">
+            <span class="lb" style="width:auto">sink</span>
+            <input type="number" class="coord" id="isink" value="0" min="0" style="width:52px!important">
+          </div>
+          <div class="hint" style="margin-top:6px">y = <b>auto</b> sets the base on the terrain
+          surface · sink buries it N blocks · <span style="color:var(--warn)">close the world in
+          Minecraft first</span> — touched region files are backed up inside the save</div>
+        </div>
+        <div class="row" style="margin-top:14px; gap:14px" id="scrow">
           <label class="switch"><input type="checkbox" id="showcase" checked> SHOWCASE MODE</label>
           <select id="scdur">
             <option value="60">1 min</option>
@@ -186,7 +219,7 @@ tr:hover td{background:var(--sel)}
           </select>
         </div>
         <button class="forge" id="go">▶ FORGE WORLD</button>
-        <div class="hint">tall models auto-extend the height limit via an embedded datapack ·
+        <div class="hint" id="mainhint">tall models auto-extend the height limit via an embedded datapack ·
         huge models stream region-by-region · output stays 100% vanilla-loadable</div>
       </div>
     </div>
@@ -238,6 +271,33 @@ drop a model and hit FORGE.</div>
 const $=s=>document.querySelector(s);
 const term=$('#term'), rows=$('#rows');
 let picked=null;
+let mode='forge';
+
+// mode tabs (forge new world / import into existing world)
+async function loadSaves(){
+  const s=await (await fetch('/api/saves')).json();
+  const cur=$('#dst').value;
+  $('#dst').innerHTML='<option value="">— pick a save —</option>'+
+    s.map(w=>`<option value="${w.name.replace(/"/g,'&quot;')}">${w.name} (${w.mb} MB)</option>`).join('');
+  if(cur) $('#dst').value=cur;
+}
+function setMode(m){
+  mode=m;
+  $('#m-forge').classList.toggle('on',m==='forge');
+  $('#m-import').classList.toggle('on',m==='import');
+  $('#importbox').classList.toggle('on',m==='import');
+  $('#scrow').style.display = m==='import'?'none':'flex';
+  $('#go').textContent = m==='import'?'▶ IMPORT INTO WORLD':'▶ FORGE WORLD';
+  $('#wname').placeholder = m==='import'
+    ? 'job name (auto from file if empty)'
+    : 'world name (auto from file if empty)';
+  $('#mainhint').textContent = m==='import'
+    ? 'converts the model, then overlays only its blocks into the chosen save — terrain, builds, chests and entities around it survive · un-generated chunks are skipped (pregenerate with Chunky) · tall imports auto-extend the height limit'
+    : 'tall models auto-extend the height limit via an embedded datapack · huge models stream region-by-region · output stays 100% vanilla-loadable';
+  if(m==='import') loadSaves();
+}
+$('#m-forge').onclick=()=>setMode('forge');
+$('#m-import').onclick=()=>setMode('import');
 
 // size chips
 $('#sizes').addEventListener('click',e=>{
@@ -268,14 +328,19 @@ async function refresh(){
   rows.innerHTML = js.length? '' : '<tr><td colspan="6" style="color:var(--dim)">nothing forged yet</td></tr>';
   for(const j of js){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${j.name}</td><td>${j.size}</td>
+    const name = j.mode==='import'
+      ? `${j.name} <span style="color:var(--acc)">→ ${j.dst}</span> <span style="color:var(--dim)">@ ${j.at}</span>`
+      : j.name;
+    const act = j.status!=='done' ? ''
+      : j.mode==='import'
+        ? '<span style="color:var(--ok)">MERGED ✓</span>'
+        : `<button class="btn" onclick="install(${j.job})" ${j.installed?'disabled':''}>${j.installed?'INSTALLED ✓':'INSTALL'}</button>
+           <button class="btn" onclick="currentJob=${j.job};SC.start('${j.job}',{duration:+document.querySelector('#scdur').value,live:false})">REPLAY ▶</button>`;
+    tr.innerHTML=`<td>${name}</td><td>${j.size}</td>
       <td>${j.stats.voxels? j.stats.voxels.toLocaleString():'—'}</td>
       <td>${j.stats.regions??'—'}${j.stats.extended?' <span style="color:var(--warn)">↑tall</span>':''}</td>
       <td class="st-${j.status}">${j.status.toUpperCase()}</td>
-      <td>${j.status==='done'
-          ? `<button class="btn" onclick="install(${j.job})" ${j.installed?'disabled':''}>${j.installed?'INSTALLED ✓':'INSTALL'}</button>
-             <button class="btn" onclick="currentJob=${j.job};SC.start('${j.job}',{duration:+document.querySelector('#scdur').value,live:false})">REPLAY ▶</button>`
-          : ''}</td>`;
+      <td>${act}</td>`;
     rows.appendChild(tr);
   }
 }
@@ -298,8 +363,18 @@ $('#go').onclick=async()=>{
   fd.append('size',$('#size').value);
   fd.append('cleanup',$('#cleanup').checked?'1':'0');
   fd.append('align',$('#align').checked?'1':'0');
+  let ep='/api/convert';
+  if(mode==='import'){
+    if(!$('#dst').value){log(':: pick a target world first','err'); return;}
+    ep='/api/import';
+    fd.append('dst',$('#dst').value);
+    fd.append('x',$('#ix').value||'0');
+    fd.append('y',$('#iy').value.trim()||'auto');
+    fd.append('z',$('#iz').value||'0');
+    fd.append('sink',$('#isink').value||'0');
+  }
   $('#go').disabled=true; $('#jstat').textContent='launching…';
-  const r=await (await fetch('/api/convert',{method:'POST',body:fd})).json();
+  const r=await (await fetch(ep,{method:'POST',body:fd})).json();
   if(r.error){log(':: '+r.error,'err'); $('#go').disabled=false; $('#jstat').textContent='idle'; return;}
   log('', null); log(':: job '+r.job+' — '+r.model,'sys');
   $('#jstat').textContent='running · job '+r.job;
@@ -324,6 +399,7 @@ $('#go').onclick=async()=>{
 };
 refresh();
 const qp=new URLSearchParams(location.search);
+if(qp.get('mode')==='import') setMode('import');
 if(qp.get('shots')){window._shots=qp.get('shots').split(',').map(t=>({t:+t,done:false}));
   window.onerror=(m,src,l,c)=>{fetch('/api/debuglog',{method:'POST',body:`JSERR ${m} @${src}:${l}:${c}`});};
   window.onunhandledrejection=e=>{fetch('/api/debuglog',{method:'POST',body:'REJ '+(e.reason&&e.reason.stack||e.reason)});};}
