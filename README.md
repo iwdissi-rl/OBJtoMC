@@ -115,3 +115,7 @@ Oklab conversion follows Bjorn Ottosson's public-domain reference and is inlined
 ## License
 
 MIT. See `LICENSE`.
+
+---
+
+made by IWDissi and the fabulous claude assistant 😋
