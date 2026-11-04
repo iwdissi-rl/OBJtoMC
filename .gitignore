@@ -182,3 +182,20 @@ studio/uploads/
 studio/worlds/
 studio/__pycache__/
 studio/video_assets/out/
+
+# local-only process docs and manual artefacts (not published)
+/CLAUDE.md
+/SESSION_LOG.md
+/DECISIONS.md
+/OPEN_QUESTIONS.md
+/TESTS.md
+/PIPELINE.md
+/PROJECT.md
+/ARCHITECTURE.md
+/research/*.md
+/research/scratch/
+/tests/manual/
+/studio/video_assets/
+/studio/debug_shot_*.png
+.claude/
+__pycache__/

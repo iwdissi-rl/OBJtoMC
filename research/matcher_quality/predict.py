@@ -55,9 +55,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-PROJECT_ROOT = os.environ.get(
-    "OBJTOMC_ROOT", "/path/to/OBJtoMC"
-)
+PROJECT_ROOT = os.environ.get("OBJTOMC_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 PALETTE_CSV = os.path.join(PROJECT_ROOT, "data", "block_palette_db.csv")
 
 # MatcherOptions::default_options() from src/matcher.cpp line 158.

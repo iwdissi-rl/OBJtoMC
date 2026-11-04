@@ -67,7 +67,7 @@ from predict import (  # noqa: E402
 # Phase-4T (locked, adds translucent_mismatch on renders_translucent ruler)
 # are emitted here.
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = os.environ.get("OBJTOMC_ROOT", "/path/to/OBJtoMC")
+PROJECT_ROOT = os.environ.get("OBJTOMC_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 SPONZA_CSV   = os.path.join(PROJECT_ROOT, "research", "matcher_quality",
                             "sponza_texture_avg_colours.csv")
 TRANSLUCENT_CSV = os.path.join(PROJECT_ROOT, "research", "matcher_quality",
