@@ -24,6 +24,14 @@ Turn large OBJ and glTF meshes into vanilla Minecraft Java Edition 1.21.5 worlds
 - **Extended world height.** Models taller than 384 blocks get an embedded `objtomc_height` datapack that raises the dimension limits (`--world-height`), up to the 1.21.5 maximum of -2032..2032.
 - **VOXFORGE GUI.** Flask + three.js front end: drag in a model or zip, pick a size, watch the live log, view a sampled voxel showcase, install to your saves folder, or merge into an existing world at chosen coordinates.
 
+## Set it up with Claude Code
+
+This repo includes `SETUP_WITH_CLAUDE.md`, a guided setup prompt. Claude Code reads it, checks your system, installs what is missing (asking first), builds and tests the project, and then tells you what to do next. Install [Claude Code](https://claude.com/claude-code), open a terminal in the cloned folder and run:
+
+```sh
+claude "Read SETUP_WITH_CLAUDE.md and set this project up for me"
+```
+
 ## Getting started
 
 This walks you from nothing to a converted model standing in your own Minecraft world. Each command goes in a terminal. Copy one line at a time.
